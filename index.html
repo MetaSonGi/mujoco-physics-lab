@@ -1,0 +1,920 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<style>:root{padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}body{margin:0;font-size:14px}img{max-width:100%}</style>
+<title>MuJoCo 물리 실험실</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans+KR:wght@400;500;700&display=swap">
+<style>
+/* Layout: 실험 콘솔 — 실험 선택 칩 / 왼쪽 3D 뷰포트+재생바 / 오른쪽 변수 슬라이더·계측·그래프 */
+:root{
+  --bg:#eef1f3; --panel:#ffffff; --ink:#14202a; --muted:#5a6976; --line:#d6dde2; --stage:#e3e8ec;
+  --sim:#1a6fa3; --ref:#d0731c; --alt:#8a96a0; --err:#c23b5a;
+  --pass:#1f7a4d; --pass-bg:#e1f2e8; --fail:#b3261e; --fail-bg:#fbe5e3; --warn:#9a6b00; --warn-bg:#fbf0d6;
+  --sans:"IBM Plex Sans KR",system-ui,-apple-system,"Apple SD Gothic Neo","Malgun Gothic",sans-serif;
+  --mono:"IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,monospace;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --bg:#0e151b; --panel:#151f28; --ink:#e2e9ee; --muted:#8e9fac; --line:#253340; --stage:#0b1116;
+  --sim:#5db3e6; --ref:#f2a35b; --alt:#7c8a95; --err:#ef7a95;
+  --pass:#6fd59f; --pass-bg:#16301f; --fail:#ff8a80; --fail-bg:#3a1c1a; --warn:#e7c060; --warn-bg:#352a10; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#0e151b; --panel:#151f28; --ink:#e2e9ee; --muted:#8e9fac; --line:#253340; --stage:#0b1116;
+  --sim:#5db3e6; --ref:#f2a35b; --alt:#7c8a95; --err:#ef7a95;
+  --pass:#6fd59f; --pass-bg:#16301f; --fail:#ff8a80; --fail-bg:#3a1c1a; --warn:#e7c060; --warn-bg:#352a10; color-scheme:dark}
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+body{background:var(--bg);color:var(--ink);font-family:var(--sans);font-size:15px;line-height:1.5;
+  padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));padding-block:22px 48px}
+.wrap{max-width:1280px;margin:0 auto;display:flex;flex-direction:column;gap:16px}
+header{display:flex;flex-direction:column;gap:6px}
+.eyebrow{font-family:var(--mono);font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+h1{margin:0;font-size:clamp(24px,3.4vw,32px);font-weight:700;text-wrap:balance}
+.lede{margin:0;max-width:78ch;color:var(--muted)}
+.chips{display:flex;gap:6px;flex-wrap:wrap}
+.chips button{font-family:var(--sans);font-size:13.5px;border:1px solid var(--line);background:var(--panel);color:var(--ink);padding:6px 12px;border-radius:99px;cursor:pointer}
+.chips button[aria-pressed="true"]{background:var(--ink);color:var(--bg);border-color:var(--ink)}
+button:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid var(--sim);outline-offset:2px}
+.main{display:grid;grid-template-columns:minmax(0,1fr) 360px;gap:16px;align-items:start}
+@media (max-width:940px){.main{grid-template-columns:minmax(0,1fr)}}
+.col{display:flex;flex-direction:column;gap:10px;min-width:0}
+.stage{position:relative;background:var(--stage);border:1px solid var(--line);border-radius:12px;overflow:hidden;aspect-ratio:16/10;max-width:100%}
+.stage canvas{display:block;width:100%;height:100%;touch-action:none}
+.overlay{position:absolute;left:12px;top:10px;right:12px;display:flex;flex-direction:column;gap:3px;pointer-events:none}
+.overlay .ttl{font-weight:700;font-size:16px}
+.overlay .f{font-family:var(--mono);font-size:12.5px;color:var(--sim)}
+.flag{position:absolute;right:12px;top:10px;font-size:12px;padding:4px 9px;border-radius:99px;background:var(--warn-bg);color:var(--warn)}
+.legend{position:absolute;left:12px;bottom:10px;display:flex;flex-wrap:wrap;gap:4px 12px;font-size:12px;color:var(--muted);pointer-events:none;max-width:calc(100% - 24px)}
+.legend span{display:flex;align-items:center;gap:5px}
+.legend i{width:11px;height:11px;border-radius:3px;display:inline-block;background:var(--sim)}
+.legend i.g{background:none;border:1.5px dashed var(--ref)} .legend i.a{background:none;border:1.5px dashed var(--alt)}
+.hint{position:absolute;right:12px;bottom:10px;font-size:11px;color:var(--muted);pointer-events:none;text-align:right}
+.loading{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:8px;background:var(--stage);color:var(--muted);font-size:14px;text-align:center;padding:20px}
+.ctrl{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.ctrl button,.ctrl select{font-family:var(--mono);font-size:13px;border:1px solid var(--line);background:var(--panel);color:var(--ink);padding:6px 11px;border-radius:8px;cursor:pointer;min-height:34px}
+.ctrl button.on{background:var(--sim);border-color:var(--sim);color:var(--panel)}
+.ctrl .time{font-family:var(--mono);font-size:13px;font-variant-numeric:tabular-nums;margin-left:auto}
+.ctrl label{font-size:12.5px;color:var(--muted);display:flex;gap:6px;align-items:center}
+.box{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:14px;display:flex;flex-direction:column;gap:10px}
+.box h3{margin:0;font-size:12px;font-weight:500;letter-spacing:.06em;color:var(--muted);display:flex;justify-content:space-between;align-items:center}
+.box h3 button{font-family:var(--sans);font-size:12px;border:1px solid var(--line);background:transparent;color:var(--ink);border-radius:6px;padding:2px 8px;cursor:pointer}
+.param{display:grid;grid-template-columns:1fr auto;gap:2px 10px;align-items:center}
+.param label{font-size:13.5px}
+.param output{font-family:var(--mono);font-size:13px;font-variant-numeric:tabular-nums;color:var(--sim)}
+.param input[type=range]{grid-column:1/3;width:100%;accent-color:var(--sim)}
+.param.chk{grid-template-columns:auto 1fr;justify-content:start}
+.param.chk input{accent-color:var(--sim);width:16px;height:16px}
+.read{display:grid;grid-template-columns:minmax(0,1fr) auto auto;gap:3px 12px;font-family:var(--mono);font-size:13px;font-variant-numeric:tabular-nums;align-items:baseline}
+.read .h{font-family:var(--sans);font-size:11px;color:var(--muted);letter-spacing:.04em}
+.read .k{color:var(--muted);font-family:var(--sans);font-size:13px;min-width:0}
+.read .s{color:var(--sim);text-align:right} .read .r{color:var(--ref);text-align:right}
+.verdict{display:flex;justify-content:space-between;align-items:center;gap:8px;font-size:13px;border-top:1px solid var(--line);padding-top:8px}
+.verdict .v{font-family:var(--mono)}
+.pill{font-family:var(--mono);font-size:11px;font-weight:500;letter-spacing:.06em;padding:3px 8px;border-radius:99px;background:var(--pass-bg);color:var(--pass);white-space:nowrap}
+.pill.f{background:var(--fail-bg);color:var(--fail)} .pill.w{background:var(--warn-bg);color:var(--warn)}
+canvas.plot{width:100%;height:120px;display:block}
+.cap{font-size:11.5px;color:var(--muted)}
+.explain{font-size:13.5px;color:var(--muted);margin:0}
+h2{margin:6px 0 0;font-size:18px}
+.note{color:var(--muted);margin:0;max-width:84ch;font-size:14px}
+code{font-family:var(--mono);font-size:.92em}
+</style>
+</head>
+<body>
+
+
+<div class="wrap">
+  <header>
+    <div class="eyebrow">MuJoCo <span id="ver">WASM</span> · 브라우저에서 실시간 계산 · 해석해 동시 비교</div>
+    <h1>MuJoCo 물리 실험실</h1>
+    <p class="lede">MuJoCo 엔진이 이 페이지 안에서 직접 돌아갑니다. 오른쪽 슬라이더로 질량·길이·각도·마찰 등을 바꾸면 모델이 다시 컴파일되고, 주황 점선 고스트는 같은 조건의 해석해를 동시에 그립니다. 물체를 손가락이나 마우스로 잡아 끌 수도 있습니다.</p>
+  </header>
+
+  <div class="chips" id="chips" role="group" aria-label="실험 선택"></div>
+
+  <div class="main">
+    <div class="col">
+      <div class="stage" id="stage">
+        <canvas id="gl"></canvas>
+        <div class="overlay"><div class="ttl" id="ttl"></div><div class="f" id="fml"></div></div>
+        <div class="flag" id="flag" hidden>외력 적용됨 · 리셋하면 비교 재개</div>
+        <div class="legend" id="legend"></div>
+        <div class="hint">물체 드래그 = 잡아 끌기<br>빈 곳 드래그 = 시점 회전</div>
+        <div class="loading" id="loading"><b>MuJoCo 엔진 불러오는 중…</b><span>WebAssembly 약 11 MB</span></div>
+      </div>
+      <div class="ctrl">
+        <button id="play" aria-label="재생/일시정지">❚❚</button>
+        <button id="reset">↺ 리셋</button>
+        <button data-s="0.25">¼×</button><button data-s="0.5">½×</button><button data-s="1" class="on">1×</button><button data-s="4">4×</button>
+        <label for="integ">적분기 <select id="integ"><option>RK4</option><option>implicitfast</option><option>Euler</option></select></label>
+        <span class="time" id="time">t = 0.000 s</span>
+      </div>
+      <div class="box">
+        <h3>무엇을 확인하나</h3>
+        <p class="explain" id="explain"></p>
+      </div>
+    </div>
+
+    <div class="col">
+      <div class="box">
+        <h3>변수 <button id="defaults">기본값</button></h3>
+        <div id="params" class="col" style="gap:12px"></div>
+      </div>
+      <div class="box">
+        <h3>실시간 계측</h3>
+        <div class="read" id="read"></div>
+        <div class="verdict"><span>오차 <span class="v" id="errv">–</span> <span class="cap" id="tolv"></span></span><span class="pill" id="vp">–</span></div>
+      </div>
+      <div class="box">
+        <h3 id="p1t">시간 이력</h3>
+        <canvas class="plot" id="p1"></canvas>
+        <span class="cap" id="p1c"><b style="color:var(--sim)">━</b> MuJoCo &nbsp; <b style="color:var(--ref)">┅</b> 해석해</span>
+        <canvas class="plot" id="p2"></canvas>
+        <span class="cap">오차 (로그 스케일)</span>
+      </div>
+    </div>
+  </div>
+
+  <h2>참고</h2>
+  <p class="note">엔진은 공식 <code>@mujoco/mujoco</code> WebAssembly 빌드입니다. 해석해는 닫힌 형태의 식이고, 닫힌 해가 없는 진자는 운동방정식을 별도로 아주 작은 간격으로 적분한 값입니다. 경사면과 충돌은 연성 접촉 모델이라 허용치를 넉넉히 두었고, 충돌에서는 접촉 모델과 무관한 운동량 보존을 판정합니다. 적분기를 Euler로 바꾸거나 물체를 끌면 오차가 커지는 것을 볼 수 있습니다.</p>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+<script type="module">
+const $ = id => document.getElementById(id);
+const css = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+const G0 = 9.81, PI = Math.PI, D2R = PI / 180;
+const fmt = (v, d = 4) => { if (v === undefined || v === null || Number.isNaN(v)) return '–'; const a = Math.abs(v);
+  return (a !== 0 && (a < 1e-3 || a >= 1e5)) ? v.toExponential(2) : v.toFixed(d); };
+const qyq = th => [Math.cos(th / 2), 0, Math.sin(th / 2), 0];
+const qmul = (a, b) => [a[0]*b[0]-a[1]*b[1]-a[2]*b[2]-a[3]*b[3], a[0]*b[1]+a[1]*b[0]+a[2]*b[3]-a[3]*b[2], a[0]*b[2]-a[1]*b[3]+a[2]*b[0]+a[3]*b[1], a[0]*b[3]+a[1]*b[2]-a[2]*b[1]+a[3]*b[0]];
+const agmK = k => { let a = 1, b = Math.sqrt(1 - k * k); for (let i = 0; i < 30; i++) { const a2 = (a + b) / 2; b = Math.sqrt(a * b); a = a2; } return PI / (2 * a); };
+const opt = (p, extra = '') => `<option timestep="${p.__dt}" integrator="${p.__integ}" ${extra}><flag energy="enable"/></option>`;
+const GROUND = (s = 6, extra = '') => `<geom name="floor" type="plane" size="${s} ${s} 0.1" rgba="0.6 0.65 0.7 1" ${extra}/>`;
+const NC = 'contype="0" conaffinity="0"';
+
+// 단진자 ODE 기준해 (독립 RK4, 매우 작은 간격)
+function pendRef(state, t, f) {
+  const h = 2e-5;
+  while (state.rt < t - 1e-12) { const dt = Math.min(h, t - state.rt), y = state.ry;
+    const k1 = f(y), k2 = f(y.map((v, i) => v + dt / 2 * k1[i])), k3 = f(y.map((v, i) => v + dt / 2 * k2[i])), k4 = f(y.map((v, i) => v + dt * k3[i]));
+    state.ry = y.map((v, i) => v + dt / 6 * (k1[i] + 2 * k2[i] + 2 * k3[i] + k4[i])); state.rt += dt; }
+  return state.ry;
+}
+
+// ======================================================================= 실험 정의
+const SCENES = [
+{
+  key: 'projectile', title: '투사체와 공기 저항', formula: 'm·r̈ = m·g − β·v,   β = 3πμ·d_eq',
+  explain: '공을 던진 궤적을 해석해와 비교합니다. 점성 μ를 0으로 두면 포물선, 올리면 선형 항력이 붙은 궤적(지수함수 해)이 됩니다. MuJoCo는 점성 저항을 등가 관성상자 지름 d_eq = √(12/5)·r 의 구에 대한 스토크스 법칙으로 계산합니다. 중력을 달(1.62)이나 목성(24.8)으로 바꿔 보세요.',
+  dt: 0.001, tol: 1e-6, tolLabel: '허용 1e-6 m',
+  params: [
+    {id:'v0', label:'초속도', unit:' m/s', min:2, max:30, step:0.5, val:16},
+    {id:'ang', label:'발사각', unit:'°', min:5, max:85, step:1, val:50},
+    {id:'g', label:'중력 g', unit:' m/s²', min:1.62, max:24.8, step:0.01, val:9.81},
+    {id:'mu', label:'공기 점성 μ', unit:' Pa·s', min:0, max:3, step:0.05, val:0.6},
+  ],
+  cam: {pos:[6, -18, 6], target:[8, 0, 3]},
+  xml: p => `<mujoco>${opt(p, `gravity="0 0 -${p.g}" viscosity="${p.mu}"`)}<worldbody>${GROUND(30)}
+    <body name="ball" pos="0 0 0.2"><freejoint/><geom type="sphere" size="0.2" mass="1" rgba="0.1 0.44 0.64 1" ${NC}/></body></worldbody></mujoco>`,
+  init: (m, d, p, S) => { const a = p.ang * D2R; d.qvel[0] = p.v0 * Math.cos(a); d.qvel[2] = p.v0 * Math.sin(a);
+    S.beta = 3 * PI * p.mu * Math.sqrt(12 / 5) * 0.2; },
+  ref(t, p, S) { const a = p.ang * D2R, vx = p.v0 * Math.cos(a), vz = p.v0 * Math.sin(a), g = p.g;
+    if (S.beta < 1e-12) return [vx * t, 0.2 + vz * t - g * t * t / 2];
+    const tau = 1 / S.beta, e = 1 - Math.exp(-t / tau);
+    return [vx * tau * e, 0.2 + (vz + g * tau) * tau * e - g * tau * t]; },
+  ghosts: [{body:'ball'}], trail: ['ball'],
+  ghost(t, p, S) { const [x, z] = this.ref(t, p, S); return [[[x, 0, z], [1, 0, 0, 0]]]; },
+  stop: (m, d) => d.qpos[2] < 0.2 && d.time > 0.05,
+  measure(m, d, p, S) { const [x, z] = this.ref(d.time, p, S);
+    return {rows:[['x (m)', d.qpos[0], x], ['z (m)', d.qpos[2], z], ['vₓ (m/s)', d.qvel[0], null]],
+      sim: d.qpos[2], ref: z, err: Math.hypot(d.qpos[0] - x, d.qpos[2] - z)}; },
+},
+{
+  key: 'pendulum', title: '단진자 (큰 진폭)', formula: 'θ̈ = −(g/L)·sinθ − (b/mL²)·θ̇,   T = 4√(L/g)·K(sin(θ₀/2))',
+  explain: '진폭이 크면 주기가 2π√(L/g)보다 길어집니다. 주황 고스트는 같은 운동방정식을 2×10⁻⁵ s 간격으로 따로 적분한 기준해이고, 회색 고스트는 교과서의 작은 진폭 근사입니다. 감쇠 b가 0일 때는 측정 주기를 타원적분으로 구한 정확한 주기와도 비교합니다.',
+  dt: 0.0005, tol: 1e-6, tolLabel: '허용 1e-6 rad',
+  params: [
+    {id:'L', label:'줄 길이 L', unit:' m', min:0.3, max:2.5, step:0.05, val:1.5},
+    {id:'th0', label:'초기 각 θ₀', unit:'°', min:5, max:178, step:1, val:140},
+    {id:'g', label:'중력 g', unit:' m/s²', min:1.62, max:24.8, step:0.01, val:9.81},
+    {id:'b', label:'관절 감쇠 b', unit:' N·m·s', min:0, max:1, step:0.01, val:0},
+    {id:'small', label:'작은 진폭 근사 고스트 표시', type:'check', val:true},
+  ],
+  cam: {pos:[0.4, -6, 2.2], target:[0, 0, 1.8]},
+  xml: p => `<mujoco>${opt(p, `gravity="0 0 -${p.g}"`)}<worldbody>${GROUND(3)}
+    <geom type="cylinder" fromto="-0.1 0 2.6 0.1 0 2.6" size="0.05" rgba="0.3 0.3 0.35 1" ${NC}/>
+    <body name="pend" pos="0 0 2.6"><joint type="hinge" axis="0 1 0" damping="${p.b}"/>
+      <inertial pos="0 0 -${p.L}" mass="1" diaginertia="1e-9 1e-9 1e-9"/>
+      <geom type="capsule" fromto="0 0 0 0 0 -${p.L}" size="0.02" mass="0" rgba="0.5 0.55 0.6 1" ${NC}/>
+      <geom type="sphere" pos="0 0 -${p.L}" size="0.14" mass="0" rgba="0.1 0.44 0.64 1" ${NC}/></body></worldbody></mujoco>`,
+  init: (m, d, p, S) => { d.qpos[0] = p.th0 * D2R; S.rt = 0; S.ry = [p.th0 * D2R, 0]; S.ups = []; S.prev = d.qpos[0]; },
+  after(m, d, p, S) { const q = d.qpos[0]; if ((S.prev < 0) !== (q < 0)) S.ups.push(d.time - q / ((q - S.prev) / m.opt.timestep)); S.prev = q; },
+  ghosts: [{body:'pend'}, {body:'pend', alt:true, show: p => p.small}],
+  ghost(t, p, S) { const y = pendRef(S, t, y => [y[1], -p.g / p.L * Math.sin(y[0]) - p.b / (p.L * p.L) * y[1]]);
+    const w = Math.sqrt(p.g / p.L), th0 = p.th0 * D2R, gam = p.b / (2 * p.L * p.L);
+    return [[[0, 0, 2.6], qyq(y[0])], [[0, 0, 2.6], qyq(th0 * Math.exp(-gam * t) * Math.cos(w * t))]]; },
+  legend: ['MuJoCo', '기준해 (독립 ODE 적분)', '작은 진폭 근사'],
+  measure(m, d, p, S) { const th = S.ry[0];
+    const Te = 4 * Math.sqrt(p.L / p.g) * agmK(Math.sin(p.th0 * D2R / 2)), T0 = 2 * PI * Math.sqrt(p.L / p.g);
+    const ups = S.ups, Tm = ups.length > 1 ? 2 * (ups[ups.length - 1] - ups[0]) / (ups.length - 1) : null;
+    return {rows:[['θ (rad)', d.qpos[0], th], ['주기 T (s)', Tm, p.b === 0 ? Te : null], ['작은 진폭 T₀ (s)', null, T0]],
+      sim: d.qpos[0], ref: th, err: Math.abs(d.qpos[0] - th)}; },
+},
+{
+  key: 'double', title: '이중 진자 (혼돈)', formula: 'E = T + V = const,   |Δθ(t)| ~ ε·e^{λt}',
+  explain: '닫힌 해가 없는 혼돈계입니다. 초기 각도가 ε만큼만 다른 진자 두 개를 나란히 돌리면 처음엔 같이 움직이다가 어느 순간 완전히 갈라집니다. 엔진 정확도는 에너지 보존으로 판정합니다. RK4에서는 에너지가 거의 그대로이고, Euler로 바꾸면 눈에 띄게 변합니다.',
+  dt: 0.0005, tol: 1e-4, tolLabel: '허용 상대 1e-4',
+  params: [
+    {id:'th1', label:'위 막대 θ₁', unit:'°', min:0, max:180, step:1, val:120},
+    {id:'th2', label:'아래 막대 θ₂', unit:'°', min:0, max:180, step:1, val:150},
+    {id:'eps', label:'초기 차이 ε = 10^x rad', unit:'', min:-10, max:-1, step:1, val:-6},
+    {id:'L', label:'막대 길이', unit:' m', min:0.4, max:1.2, step:0.05, val:0.8},
+  ],
+  cam: {pos:[0.3, -6.5, 2.4], target:[0, 0, 2.2]},
+  xml: p => { const arm = (n, y, c) => `<body name="${n}a" pos="0 ${y} 2.8"><joint type="hinge" axis="0 1 0"/>
+      <inertial pos="0 0 -${p.L}" mass="1" diaginertia="1e-9 1e-9 1e-9"/><geom type="capsule" fromto="0 0 0 0 0 -${p.L}" size="0.025" mass="0" rgba="${c}" ${NC}/>
+      <body name="${n}b" pos="0 0 -${p.L}"><joint type="hinge" axis="0 1 0"/><inertial pos="0 0 -${p.L}" mass="1" diaginertia="1e-9 1e-9 1e-9"/>
+      <geom type="capsule" fromto="0 0 0 0 0 -${p.L}" size="0.025" mass="0" rgba="${c}" ${NC}/>
+      <geom name="${n}tip" type="sphere" pos="0 0 -${p.L}" size="0.09" mass="0" rgba="${c}" ${NC}/></body></body>`;
+    return `<mujoco>${opt(p, `gravity="0 0 -${G0}"`)}<worldbody>${GROUND(3)}
+      <geom type="box" pos="0 0 2.8" size="0.06 0.5 0.03" rgba="0.3 0.3 0.35 1" ${NC}/>
+      ${arm('A', -0.18, '0.1 0.44 0.64 1')}${arm('B', 0.18, '0.76 0.23 0.35 1')}</worldbody></mujoco>`; },
+  init(m, d, p, S) { const e = Math.pow(10, p.eps); d.qpos[0] = p.th1 * D2R; d.qpos[1] = (p.th2 - p.th1) * D2R;
+    d.qpos[2] = p.th1 * D2R + e; d.qpos[3] = (p.th2 - p.th1) * D2R; mj.mj_forward(m, d); S.E0 = this.energies(m, d); },
+  energies(m, d) { // 각 진자의 에너지 직접 계산 (점질량)
+    const xp = d.geom_xpos, out = [];
+    for (const [qa, qb] of [[0, 1], [2, 3]]) { const L = this._L, a = d.qpos[qa], b = a + d.qpos[qb], wa = d.qvel[qa], wb = wa + d.qvel[qb];
+      const v1x = L * wa * Math.cos(a), v1z = L * wa * Math.sin(a), v2x = v1x + L * wb * Math.cos(b), v2z = v1z + L * wb * Math.sin(b);
+      const z1 = -L * Math.cos(a), z2 = z1 - L * Math.cos(b);
+      out.push(0.5 * (v1x * v1x + v1z * v1z + v2x * v2x + v2z * v2z) + G0 * (z1 + z2)); }
+    return out; },
+  trail: [{geom:'Atip'}, {geom:'Btip'}],
+  legend: ['진자 A', '진자 B (θ₁ + ε)'], colors: ['--sim', '--err'],
+  measure(m, d, p, S) { const E = this.energies(m, d), sc = Math.max(1, Math.abs(S.E0[0]));
+    const ga = d.geom_xpos, ia = S.tipA * 3, ib = S.tipB * 3;
+    const sep = Math.hypot(ga[ia] - ga[ib], ga[ia + 2] - ga[ib + 2]);
+    const err = Math.max(Math.abs(E[0] - S.E0[0]), Math.abs(E[1] - S.E0[1])) / sc;
+    return {rows:[['에너지 A (J)', E[0], S.E0[0]], ['에너지 B (J)', E[1], S.E0[1]], ['두 끝점 거리 (m)', sep, null], ['θ₁ 차이 (rad)', Math.abs(d.qpos[0] - d.qpos[2]), null]],
+      sim: E[0], ref: S.E0[0], err, plot2: sep}; },
+  setup(m, d, p, S) { this._L = p.L; S.tipA = mj.mj_name2id(m, OBJ_GEOM, 'Atip'); S.tipB = mj.mj_name2id(m, OBJ_GEOM, 'Btip'); },
+},
+{
+  key: 'forced', title: '강제 진동과 공진', formula: 'mẍ + cẋ + kx = F₀cos(ωt),   A(ω) = (F₀/m) / √((ω₀²−ω²)² + (2ζω₀ω)²)',
+  explain: '스프링에 매달린 상자를 주기적인 힘으로 흔듭니다. 구동 진동수 ω를 고유 진동수 ω₀ 근처로 옮기면 진폭이 크게 커집니다(공진). 고스트는 과도 응답까지 포함한 완전한 해석해입니다. 아래 그래프에서 공진 곡선과 측정 진폭(점)을 비교할 수 있습니다.',
+  dt: 0.0005, tol: 1e-5, tolLabel: '허용 1e-5 m',
+  params: [
+    {id:'m', label:'질량 m', unit:' kg', min:0.2, max:3, step:0.1, val:1},
+    {id:'k', label:'스프링 상수 k', unit:' N/m', min:5, max:100, step:1, val:40},
+    {id:'z', label:'감쇠비 ζ', unit:'', min:0, max:1.5, step:0.01, val:0.08},
+    {id:'F', label:'힘 진폭 F₀', unit:' N', min:0, max:20, step:0.5, val:4},
+    {id:'w', label:'구동 진동수 ω', unit:' rad/s', min:0.5, max:20, step:0.1, val:5.5},
+  ],
+  cam: {pos:[0.6, -4, 2.2], target:[0, 0, 0.4]},
+  xml: p => { const c = 2 * p.z * Math.sqrt(p.k * p.m);
+    return `<mujoco>${opt(p, 'gravity="0 0 0"')}<worldbody>${GROUND(3)}
+    <geom type="box" pos="-1.6 0 0.4" size="0.06 0.6 0.4" rgba="0.5 0.55 0.6 1" ${NC}/>
+    <body name="box" pos="0 0 0.3"><joint name="x" type="slide" axis="1 0 0" stiffness="${p.k}" damping="${c}"/>
+      <geom type="box" size="0.25 0.25 0.25" mass="${p.m}" rgba="0.1 0.44 0.64 1" ${NC}/></body></worldbody>
+    <actuator><motor joint="x" gear="1"/></actuator></mujoco>`; },
+  init(m, d, p, S) { const w0 = Math.sqrt(p.k / p.m), z = p.z, w = p.w;
+    const A = (p.F / p.m) / Math.hypot(w0 * w0 - w * w, 2 * z * w0 * w), ph = Math.atan2(2 * z * w0 * w, w0 * w0 - w * w);
+    Object.assign(S, {w0, A, ph, amp: 0, win: []}); },
+  control(m, d, p) { d.ctrl[0] = p.F * Math.cos(p.w * (d.time + m.opt.timestep / 2)); },
+  ref(t, p, S) { const {w0, A, ph} = S, z = p.z, w = p.w;
+    const xp = A * Math.cos(w * t - ph), c0 = -A * Math.cos(ph), c1 = -A * w * Math.sin(ph);
+    let xh;
+    if (z < 1 - 1e-9) { const wd = w0 * Math.sqrt(1 - z * z); xh = Math.exp(-z * w0 * t) * (c0 * Math.cos(wd * t) + (c1 + z * w0 * c0) / wd * Math.sin(wd * t)); }
+    else if (z <= 1 + 1e-9) xh = (c0 + (c1 + w0 * c0) * t) * Math.exp(-w0 * t);
+    else { const s = w0 * Math.sqrt(z * z - 1), r1 = -z * w0 + s, r2 = -z * w0 - s, a1 = (c1 - r2 * c0) / (r1 - r2); xh = a1 * Math.exp(r1 * t) + (c0 - a1) * Math.exp(r2 * t); }
+    return xp + xh; },
+  ghosts: [{body:'box'}],
+  ghost(t, p, S) { return [[[this.ref(t, p, S), 0, 0.3], [1, 0, 0, 0]]]; },
+  springs: [{a:{fixed:[-1.54, 0, 0.3]}, b:{body:'box', off:-0.25}}],
+  after(m, d, p, S) { S.win.push([d.time, Math.abs(d.qpos[0])]); const T = 2 * PI / p.w; while (S.win.length && S.win[0][0] < d.time - T) S.win.shift(); },
+  measure(m, d, p, S) { const x = this.ref(d.time, p, S); const steady = d.time > Math.min(40, 6 / Math.max(p.z * S.w0, 1e-3));
+    S.amp = Math.max(...S.win.map(v => v[1]));
+    return {rows:[['x (m)', d.qpos[0], x], ['고유진동수 ω₀', null, S.w0], ['정상 진폭 A (m)', steady ? S.amp : null, S.A], ['위상 지연 φ (°)', null, S.ph / D2R]],
+      sim: d.qpos[0], ref: x, err: Math.abs(d.qpos[0] - x), steady}; },
+  plot2: 'resonance',
+},
+{
+  key: 'collision', title: '충돌과 운동량', formula: 'Σmᵢvᵢ = const,   x_cm(t) = x_cm(0) + v_cm·t',
+  explain: '무게와 속도가 다른 두 공이 부딪칩니다. 오프셋을 주면 비스듬히 맞고 튕겨 나갑니다. 접촉 감쇠비를 바꾸면 튕김 정도(반발계수 e)가 달라지지만, 총 운동량과 질량중심의 등속 직선운동은 어떤 경우에도 그대로여야 합니다. 주황 점선 공이 질량중심의 해석해입니다.',
+  dt: 0.0005, tol: 1e-9, tolLabel: '허용 1e-9 kg·m/s',
+  params: [
+    {id:'m1', label:'공 A 질량', unit:' kg', min:0.2, max:5, step:0.1, val:1},
+    {id:'m2', label:'공 B 질량', unit:' kg', min:0.2, max:5, step:0.1, val:3},
+    {id:'v1', label:'공 A 속도', unit:' m/s', min:0, max:5, step:0.1, val:2.5},
+    {id:'v2', label:'공 B 속도', unit:' m/s', min:-5, max:0, step:0.1, val:-0.8},
+    {id:'off', label:'충돌 오프셋', unit:' m', min:0, max:0.5, step:0.01, val:0.15},
+    {id:'dr', label:'접촉 감쇠비', unit:'', min:0.05, max:1, step:0.01, val:0.2},
+  ],
+  cam: {pos:[0, -6, 5], target:[0, 0, 0.5]},
+  xml: p => { const r1 = 0.15 * Math.cbrt(p.m1 / 0.5), r2 = 0.15 * Math.cbrt(p.m2 / 0.5);
+    return `<mujoco>${opt(p, 'gravity="0 0 0"')}<default><geom solref="0.01 ${p.dr}"/></default><worldbody>${GROUND(4, NC)}
+    <body name="a" pos="-1.6 0 0.6"><freejoint/><geom type="sphere" size="${r1}" mass="${p.m1}" rgba="0.76 0.23 0.35 1"/>
+      <geom type="box" pos="${r1 * 0.7} 0 0" size="${r1 * 0.35} 0.02 ${r1 * 0.35}" mass="0" rgba="1 1 1 1" ${NC}/></body>
+    <body name="b" pos="1.6 ${p.off} 0.6"><freejoint/><geom type="sphere" size="${r2}" mass="${p.m2}" rgba="0.42 0.31 0.7 1"/>
+      <geom type="box" pos="${r2 * 0.7} 0 0" size="${r2 * 0.35} 0.02 ${r2 * 0.35}" mass="0" rgba="1 1 1 1" ${NC}/></body>
+    <body name="cm" mocap="true" pos="0 0 0.6"><geom type="sphere" size="0.06" rgba="0.1 0.44 0.64 1" ${NC}/></body>
+    <body name="cmref" mocap="true" pos="0 0 0.6"><geom type="sphere" size="0.06" rgba="0 0 0 0" ${NC}/></body></worldbody></mujoco>`; },
+  init(m, d, p, S) { d.qvel[0] = p.v1; d.qvel[6] = p.v2; mj.mj_forward(m, d); const M = p.m1 + p.m2;
+    S.p0 = [p.m1 * p.v1 + p.m2 * p.v2, 0]; S.c0 = [(-1.6 * p.m1 + 1.6 * p.m2) / M, p.m2 * p.off / M]; S.vc = [S.p0[0] / M, 0];
+    S.KE0 = 0.5 * p.m1 * p.v1 * p.v1 + 0.5 * p.m2 * p.v2 * p.v2; S.vrel0 = p.v1 - p.v2; },
+  after(m, d, p, S) { const M = p.m1 + p.m2, x = d.qpos;
+    d.mocap_pos[0] = (p.m1 * x[0] + p.m2 * x[7]) / M; d.mocap_pos[1] = (p.m1 * x[1] + p.m2 * x[8]) / M; },
+  ghosts: [{body:'cmref', ghostShape:{type:'sphere', size:0.1}}], trail: ['cm'],
+  ghost(t, p, S) { return [[[S.c0[0] + S.vc[0] * t, S.c0[1], 0.6], [1, 0, 0, 0]]]; },
+  stop: (m, d) => d.time > 4,
+  legend: ['질량중심 (MuJoCo)', '질량중심 (해석해)'],
+  measure(m, d, p, S) { const v = d.qvel, px = p.m1 * v[0] + p.m2 * v[6], py = p.m1 * v[1] + p.m2 * v[7];
+    const KE = 0.5 * p.m1 * (v[0] ** 2 + v[1] ** 2 + v[2] ** 2) + 0.5 * p.m2 * (v[6] ** 2 + v[7] ** 2 + v[8] ** 2);
+    const cx = d.mocap_pos[0], rx = S.c0[0] + S.vc[0] * d.time;
+    const e = d.time > 1.5 && p.off === 0 ? (v[6] - v[0]) / S.vrel0 : null;
+    return {rows:[['pₓ (kg·m/s)', px, S.p0[0]], ['p_y (kg·m/s)', py, 0], ['질량중심 x (m)', cx, rx], ['운동에너지 (J)', KE, S.KE0], ['반발계수 e (정면충돌)', e, null]],
+      sim: px, ref: S.p0[0], err: Math.hypot(px - S.p0[0], py) + Math.abs(cx - rx)}; },
+},
+{
+  key: 'incline', title: '경사면: 미끄러짐과 구름', formula: '상자 a = g(sinθ − μcosθ) | 구 a = (5/7)g sinθ | 원기둥 a = (2/3)g sinθ',
+  explain: '상자, 공, 원기둥이 같은 경사면을 내려옵니다. 상자는 μ > tanθ 이면 멈춰 있고, 공과 원기둥은 마찰이 충분하면 미끄러지지 않고 구르는데 관성모멘트 때문에 가속도가 5/7, 2/3배로 줄어듭니다. 마찰이 부족하면(구: μ < (2/7)tanθ) 구르면서 미끄러지는 상태로 바뀝니다. 각도와 μ를 바꿔 경계를 넘겨 보세요.',
+  dt: 0.0005, tol: 0.02, tolLabel: '허용 2 cm (연성 접촉)',
+  params: [
+    {id:'ang', label:'경사각 θ', unit:'°', min:0, max:60, step:1, val:30},
+    {id:'mu', label:'마찰계수 μ', unit:'', min:0, max:1.2, step:0.01, val:0.3},
+    {id:'g', label:'중력 g', unit:' m/s²', min:1.62, max:24.8, step:0.01, val:9.81},
+  ],
+  cam: {pos:[-0.5, -8, 2.4], target:[-0.5, 0, -0.5]},
+  tilt: p => p.ang,
+  xml: p => { const a = p.ang * D2R; const fr = `friction="${p.mu} 0 0"`;
+    return `<mujoco>${opt(p, `gravity="${p.g * Math.sin(a)} 0 ${-p.g * Math.cos(a)}" cone="elliptic" impratio="10"`)}<worldbody>
+    <geom type="plane" size="4.5 1.6 0.1" friction="0 0 0" rgba="0.6 0.65 0.7 1"/>
+    <body name="box" pos="-3.8 -0.9 0.15"><freejoint/><geom type="box" size="0.15 0.15 0.15" mass="1" ${fr} rgba="0.76 0.23 0.35 1"/></body>
+    <body name="ball" pos="-3.8 0 0.15"><freejoint/><geom type="sphere" size="0.15" mass="1" ${fr} rgba="0.16 0.54 0.42 1"/>
+      <geom type="box" pos="0 0 0.1" size="0.03 0.16 0.05" mass="0" rgba="1 1 1 1" ${NC}/></body>
+    <body name="cyl" pos="-3.8 0.9 0.15"><freejoint/><geom type="cylinder" euler="90 0 0" size="0.15 0.15" mass="1" ${fr} rgba="0.42 0.31 0.7 1"/>
+      <geom type="box" pos="0 0 0.1" size="0.03 0.16 0.05" mass="0" rgba="1 1 1 1" ${NC}/></body></worldbody></mujoco>`; },
+  init(m, d, p, S) { const a = p.ang * D2R, s = Math.sin(a), c = Math.cos(a), g = p.g;
+    const slip = Math.max(0, g * (s - p.mu * c));
+    const roll = (k) => (p.mu >= k / (1 + k) * Math.tan(a) ? [g * s / (1 + k), '구름'] : [slip, '미끄럼+구름']);
+    S.acc = [[slip, s > p.mu * c ? '미끄럼' : '정지'], roll(0.4), roll(0.5)]; },
+  ref: (t, S, i) => -3.8 + 0.5 * S.acc[i][0] * t * t,
+  ghosts: [{body:'box'}, {body:'ball'}, {body:'cyl'}],
+  ghost(t, p, S) { return [0, 1, 2].map(i => { const x = this.ref(t, S, i);
+    const rot = i === 0 ? [1, 0, 0, 0] : (S.acc[i][1] === '구름' ? qyq((x + 3.8) / 0.15) : [1, 0, 0, 0]);
+    return [[x, (i - 1) * 0.9, 0.15], rot]; }); },
+  stop: (m, d) => d.qpos[0] > 4.2 || d.qpos[7] > 4.2 || d.qpos[14] > 4.2 || d.time > 6,
+  measure(m, d, p, S) { const t = d.time, xs = [d.qpos[0], d.qpos[7], d.qpos[14]], rs = [0, 1, 2].map(i => this.ref(t, S, i));
+    const lab = ['상자', '공', '원기둥'];
+    return {rows: [0, 1, 2].map(i => [`${lab[i]} x (m) · ${S.acc[i][1]}`, xs[i], rs[i]]).concat([['공 이론 가속도 (m/s²)', null, S.acc[1][0]]]),
+      sim: xs[1] + 3.8, ref: rs[1] + 3.8, err: Math.max(...xs.map((x, i) => Math.abs(x - rs[i])))}; },
+},
+{
+  key: 'atwood', title: '애트우드 기계', formula: 'a = (m₁ − m₂)·g / (m₁ + m₂)',
+  explain: '도르래에 걸린 두 추가 줄로 묶여 있습니다. 줄은 MuJoCo의 등식 구속(q₁ = −q₂)으로 표현했습니다. 두 질량이 같으면 정지하고, 차이가 클수록 가속도가 g에 가까워집니다.',
+  dt: 0.0005, tol: 1e-4, tolLabel: '허용 1e-4 m',
+  params: [
+    {id:'m1', label:'왼쪽 m₁', unit:' kg', min:0.1, max:5, step:0.1, val:2},
+    {id:'m2', label:'오른쪽 m₂', unit:' kg', min:0.1, max:5, step:0.1, val:1.2},
+    {id:'g', label:'중력 g', unit:' m/s²', min:1.62, max:24.8, step:0.01, val:9.81},
+  ],
+  cam: {pos:[0.4, -6, 2], target:[0, 0, 1.6]},
+  xml: p => `<mujoco>${opt(p, `gravity="0 0 -${p.g}"`)}<worldbody>${GROUND(3)}
+    <geom type="cylinder" pos="0 0 3.2" euler="90 0 0" size="0.5 0.05" rgba="0.5 0.55 0.6 1" ${NC}/>
+    <geom type="box" pos="0 0 3.55" size="0.04 0.04 0.3" rgba="0.3 0.3 0.35 1" ${NC}/>
+    <body name="L" pos="-0.5 0 1.8"><joint name="a" type="slide" axis="0 0 1"/><geom type="box" size="0.15 0.15 ${0.08 + 0.05 * p.m1}" mass="${p.m1}" rgba="0.76 0.23 0.35 1" ${NC}/></body>
+    <body name="R" pos="0.5 0 1.8"><joint name="b" type="slide" axis="0 0 1"/><geom type="box" size="0.15 0.15 ${0.08 + 0.05 * p.m2}" mass="${p.m2}" rgba="0.1 0.44 0.64 1" ${NC}/></body>
+    </worldbody><equality><joint joint1="a" joint2="b" polycoef="0 -1 0 0 0" solref="0.0005 1"/></equality></mujoco>`,
+  init(m, d, p, S) { S.a = (p.m1 - p.m2) * p.g / (p.m1 + p.m2); },
+  ghosts: [{body:'L'}, {body:'R'}],
+  ghost(t, p, S) { const z = -0.5 * S.a * t * t; return [[[-0.5, 0, 1.8 + z], [1, 0, 0, 0]], [[0.5, 0, 1.8 - z], [1, 0, 0, 0]]]; },
+  ropes: [{top:[-0.5, 0, 3.2], body:'L', h: p => 0.08 + 0.05 * p.m1}, {top:[0.5, 0, 3.2], body:'R', h: p => 0.08 + 0.05 * p.m2}],
+  stop: (m, d) => Math.abs(d.qpos[0]) > 1.2,
+  measure(m, d, p, S) { const z = -0.5 * S.a * d.time ** 2, a = d.time > 0.05 ? 2 * d.qpos[0] / d.time ** 2 : null;
+    return {rows:[['m₁ 변위 (m)', d.qpos[0], z], ['m₂ 변위 (m)', d.qpos[1], -z], ['가속도 (m/s²)', a === null ? null : -a, S.a], ['줄 구속 오차 q₁+q₂', d.qpos[0] + d.qpos[1], 0]],
+      sim: d.qpos[0], ref: z, err: Math.abs(d.qpos[0] - z)}; },
+},
+{
+  key: 'spin', title: '강체 회전 (자니베코프 효과)', formula: 'I·ω̇ + ω × (I·ω) = 0,   L = R·I·ω = const,   E = ½ωᵀIω = const',
+  explain: '무중력에서 관성모멘트가 1:2:3인 판을 돌립니다. 가장 작은 축(1)이나 가장 큰 축(3) 둘레의 회전은 안정적이지만, 중간 축(2) 둘레로 돌리면 주기적으로 뒤집힙니다. 판이 아무리 요동쳐도 주황 화살표(각운동량 방향)는 고정되어 있어야 하고, 크기와 회전 에너지도 변하지 않아야 합니다.',
+  dt: 0.0005, tol: 1e-6, tolLabel: '허용 상대 1e-6',
+  params: [
+    {id:'axis', label:'회전축 (1=최소, 2=중간, 3=최대)', unit:'', min:1, max:3, step:1, val:2},
+    {id:'w', label:'각속도 ω', unit:' rad/s', min:1, max:12, step:0.5, val:5},
+    {id:'pert', label:'초기 흔들림', unit:' rad/s', min:0.001, max:0.5, step:0.001, val:0.01},
+  ],
+  cam: {pos:[2.6, -3.2, 2.6], target:[0, 0, 1.5]},
+  xml: p => `<mujoco>${opt(p, 'gravity="0 0 0"')}<worldbody>${GROUND(3)}
+    <body name="plate" pos="0 0 1.5"><freejoint/><inertial pos="0 0 0" mass="1" diaginertia="1 2 3"/>
+      <geom type="box" size="0.5 0.35 0.03" mass="0" rgba="0.1 0.44 0.64 1" ${NC}/>
+      <geom type="capsule" fromto="0 -0.75 0 0 0.75 0" size="0.03" mass="0" rgba="0.2 0.2 0.25 1" ${NC}/>
+      <geom type="sphere" pos="0 0.78 0" size="0.1" mass="0" rgba="0.76 0.23 0.35 1" ${NC}/>
+      <geom type="sphere" pos="0.6 0 0" size="0.06" mass="0" rgba="0.16 0.54 0.42 1" ${NC}/></body></worldbody></mujoco>`,
+  init(m, d, p, S) { const w = [p.pert, p.pert, p.pert]; w[p.axis - 1] = p.w; d.qvel[3] = w[0]; d.qvel[4] = w[1]; d.qvel[5] = w[2];
+    mj.mj_forward(m, d); S.L0 = this.L(d); S.E0 = this.E(d); },
+  I: [1, 2, 3],
+  L(d) { const R = d.xmat, w = d.qvel, I = this.I, Iw = [I[0] * w[3], I[1] * w[4], I[2] * w[5]], o = 9;
+    return [0, 1, 2].map(r => R[o + 3 * r] * Iw[0] + R[o + 3 * r + 1] * Iw[1] + R[o + 3 * r + 2] * Iw[2]); },
+  E(d) { const w = d.qvel; return 0.5 * (w[3] ** 2 + 2 * w[4] ** 2 + 3 * w[5] ** 2); },
+  arrow: S => S.L0,
+  measure(m, d, p, S) { const L = this.L(d), n0 = Math.hypot(...S.L0), dl = Math.hypot(L[0] - S.L0[0], L[1] - S.L0[1], L[2] - S.L0[2]) / n0;
+    const E = this.E(d), dE = Math.abs(E - S.E0) / S.E0;
+    return {rows:[['|L| (kg·m²/s)', Math.hypot(...L), n0], ['L 방향 변화 (상대)', dl, 0], ['회전 에너지 (J)', E, S.E0], ['ω₁ ω₂ ω₃', `${d.qvel[3].toFixed(2)} ${d.qvel[4].toFixed(2)} ${d.qvel[5].toFixed(2)}`, null]],
+      sim: d.qvel[2 + p.axis], ref: p.w, err: Math.max(dl, dE), simLabel: '회전축 각속도 (참고: 기준선 = 초기값)'}; },
+},
+{
+  key: 'gyro', title: '자이로스코프 세차', formula: 'Ω = m·g·r / (I₃·ω)',
+  explain: '한쪽 끝만 받침대에 걸린 원판이 빠르게 돌면 떨어지지 않고 수평으로 천천히 돕니다(세차). 회전이 느려질수록 세차는 빨라집니다. "정상 세차 초기조건"을 끄면 원판이 위아래로 끄덕이는 장동이 나타나고, 이때는 평균 세차율을 비교합니다.',
+  dt: 0.0001, tol: 1e-6, tolLabel: '허용 1e-6 rad',
+  params: [
+    {id:'w', label:'스핀 ω', unit:' rad/s', min:15, max:300, step:5, val:100},
+    {id:'r', label:'받침점–원판 거리 r', unit:' m', min:0.2, max:0.8, step:0.05, val:0.5},
+    {id:'m', label:'원판 질량', unit:' kg', min:0.2, max:3, step:0.1, val:1},
+    {id:'steady', label:'정상 세차 초기조건', type:'check', val:true},
+  ],
+  cam: {pos:[2.2, -2.6, 2.6], target:[0, 0, 1.0]},
+  xml: p => { const R = 0.3, I3 = 0.5 * p.m * R * R, I1 = 0.25 * p.m * R * R;
+    return `<mujoco>${opt(p, `gravity="0 0 -${G0}"`)}<worldbody>${GROUND(3)}
+    <geom type="cylinder" fromto="0 0 0 0 0 1.2" size="0.04" rgba="0.5 0.55 0.6 1" ${NC}/>
+    <body name="top" pos="0 0 1.2"><joint type="ball"/><inertial pos="${p.r} 0 0" mass="${p.m}" diaginertia="${I3} ${I1} ${I1}"/>
+      <geom type="capsule" fromto="0 0 0 ${p.r + 0.06} 0 0" size="0.02" mass="0" rgba="0.3 0.3 0.35 1" ${NC}/>
+      <geom type="cylinder" pos="${p.r} 0 0" euler="0 90 0" size="${R} 0.025" mass="0" rgba="0.1 0.44 0.64 1" ${NC}/>
+      <geom type="box" pos="${p.r} 0 0.22" size="0.03 0.03 0.07" mass="0" rgba="0.95 0.95 0.95 1" ${NC}/>
+      <geom type="box" pos="${p.r} 0 -0.22" size="0.03 0.03 0.07" mass="0" rgba="0.76 0.23 0.35 1" ${NC}/></body></worldbody></mujoco>`; },
+  init(m, d, p, S) { const R = 0.3, I3 = 0.5 * p.m * R * R; S.Om = p.m * G0 * p.r / (I3 * p.w);
+    d.qvel[0] = p.w; if (p.steady) d.qvel[2] = S.Om; S.phi = 0; S.last = 0; },
+  after(m, d, p, S) { const R = d.xmat, ax = R[9], ay = R[12]; let ph = Math.atan2(ay, ax);
+    while (ph < S.phi - PI) ph += 2 * PI; while (ph > S.phi + PI) ph -= 2 * PI; S.phi = ph; },
+  ghosts: [{body:'top'}],
+  ghost(t, p, S) { return [[[0, 0, 1.2], qmul([Math.cos(S.Om * t / 2), 0, 0, Math.sin(S.Om * t / 2)], [Math.cos(p.w * t / 2), Math.sin(p.w * t / 2), 0, 0])]]; },
+  stop: (m, d, p, S) => d.time > 2 * PI / S.Om + 0.3 || d.time > 30,
+  measure(m, d, p, S) { const t = d.time, ref = S.Om * t, tilt = Math.asin(Math.max(-1, Math.min(1, d.xmat[15])));
+    const rate = t > 0.2 ? S.phi / t : null;
+    return {rows:[['세차 각 φ (rad)', S.phi, ref], ['평균 세차율 (rad/s)', rate, S.Om], ['축 기울기 (°)', tilt / D2R, 0]],
+      sim: S.phi, ref, err: p.steady ? Math.abs(S.phi - ref) : (rate === null ? 0 : Math.abs(rate - S.Om) / S.Om),
+      tolOverride: p.steady ? null : [0.05, '허용 상대 5% (장동 포함 평균)']}; },
+},
+{
+  key: 'conical', title: '원뿔 진자', formula: 'Ω = √(g / (L·cosθ)),   T = 2π√(L·cosθ / g)',
+  explain: '추를 옆으로 밀어 수평 원을 그리게 하면 줄이 원뿔면을 그립니다. 기울기 θ가 클수록 빨리 돌아야 같은 높이를 유지합니다. 정확한 원운동 속도로 출발시키므로 MuJoCo의 추가 반지름과 높이를 바꾸지 않고 해석해 고스트와 함께 돌아야 합니다.',
+  dt: 0.0005, tol: 1e-6, tolLabel: '허용 1e-6 m',
+  params: [
+    {id:'L', label:'줄 길이 L', unit:' m', min:0.5, max:2.4, step:0.05, val:1.6},
+    {id:'th', label:'기울기 θ', unit:'°', min:5, max:80, step:1, val:35},
+    {id:'g', label:'중력 g', unit:' m/s²', min:1.62, max:24.8, step:0.01, val:9.81},
+  ],
+  cam: {pos:[2.5, -4.5, 3.6], target:[0, 0, 1.6]},
+  xml: p => `<mujoco>${opt(p, `gravity="0 0 -${p.g}"`)}<worldbody>${GROUND(3)}
+    <geom type="cylinder" fromto="0 0 0 0 0 2.85" size="0.03" rgba="0.5 0.55 0.6 1" ${NC}/>
+    <body name="pend" pos="0 0 2.8"><joint type="ball"/><inertial pos="0 0 -${p.L}" mass="1" diaginertia="1e-6 1e-6 1e-6"/>
+      <geom type="capsule" fromto="0 0 0 0 0 -${p.L}" size="0.015" mass="0" rgba="0.5 0.55 0.6 1" ${NC}/>
+      <geom name="bob" type="sphere" pos="0 0 -${p.L}" size="0.13" mass="0" rgba="0.1 0.44 0.64 1" ${NC}/></body></worldbody></mujoco>`,
+  init(m, d, p, S) { const th = p.th * D2R, s = Math.sin(th), c = Math.cos(th); S.Om = Math.sqrt(p.g / (p.L * c));
+    d.qpos[0] = Math.cos(th / 2); d.qpos[1] = 0; d.qpos[2] = Math.sin(th / 2); d.qpos[3] = 0;
+    d.qvel[0] = -S.Om * s; d.qvel[1] = 0; d.qvel[2] = S.Om * c; S.phi = PI; },
+  setup(m, d, p, S) { S.bob = mj.mj_name2id(m, OBJ_GEOM, 'bob'); },
+  after(m, d, p, S) { const g = d.geom_xpos, i = 3 * S.bob; let ph = Math.atan2(g[i + 1], g[i]);
+    while (ph < S.phi - PI) ph += 2 * PI; while (ph > S.phi + PI) ph -= 2 * PI; S.phi = ph; },
+  bobRef(t, p, S) { const th = p.th * D2R, r = p.L * Math.sin(th), a = PI + S.Om * t; return [r * Math.cos(a), r * Math.sin(a), 2.8 - p.L * Math.cos(th)]; },
+  ghosts: [{body:'pend'}], trail: [{geom:'bob'}],
+  ghost(t, p, S) { return [[[0, 0, 2.8], qmul([Math.cos(S.Om * t / 2), 0, 0, Math.sin(S.Om * t / 2)], qyq(p.th * D2R))]]; },
+  measure(m, d, p, S) { const g = d.geom_xpos, i = 3 * S.bob, b = [g[i], g[i + 1], g[i + 2]], r = this.bobRef(d.time, p, S);
+    const T = 2 * PI / S.Om, Tm = d.time > 0.3 ? 2 * PI * d.time / (S.phi - PI) : null;
+    return {rows:[['회전 반지름 (m)', Math.hypot(b[0], b[1]), p.L * Math.sin(p.th * D2R)], ['추 높이 (m)', b[2], r[2]], ['주기 T (s)', Tm, T], ['회전 각 φ (rad)', S.phi, PI + S.Om * d.time]],
+      sim: b[0], ref: r[0], err: Math.hypot(b[0] - r[0], b[1] - r[1], b[2] - r[2])}; },
+},
+{
+  key: 'physical', title: '막대 진자 (물리 진자)', formula: 'I·θ̈ = −m·g·d·sinθ,   I = mL²/12 + m·d²,   T₀ = 2π√(I / (m·g·d))',
+  explain: '길이 1 m 막대를 중심에서 d만큼 떨어진 곳에 걸어 흔듭니다. 받침점이 중심에 가까워지면 주기가 길어지고, 끝으로 가도 다시 길어집니다. 주기가 가장 짧은 지점은 d = L/√12 ≈ 0.289 m 입니다. 아래 곡선에서 현재 d의 위치를 확인해 보세요.',
+  dt: 0.0005, tol: 1e-6, tolLabel: '허용 1e-6 rad',
+  params: [
+    {id:'dd', label:'받침점–중심 거리 d', unit:' m', min:0.02, max:0.5, step:0.01, val:0.2},
+    {id:'th0', label:'초기 각 θ₀', unit:'°', min:5, max:170, step:1, val:40},
+    {id:'g', label:'중력 g', unit:' m/s²', min:1.62, max:24.8, step:0.01, val:9.81},
+  ],
+  cam: {pos:[0.3, -4.6, 2.2], target:[0, 0, 2.0]},
+  xml: p => `<mujoco>${opt(p, `gravity="0 0 -${p.g}"`)}<worldbody>${GROUND(3)}
+    <geom type="cylinder" fromto="0 -0.25 2.6 0 0.12 2.6" size="0.025" rgba="0.3 0.3 0.35 1" ${NC}/>
+    <geom type="box" pos="0 -0.25 1.3" size="0.05 0.05 1.3" rgba="0.5 0.55 0.6 1" ${NC}/>
+    <body name="rod" pos="0 0 2.6"><joint type="hinge" axis="0 1 0"/><inertial pos="0 0 -${p.dd}" mass="1" diaginertia="${1 / 12} ${1 / 12} 1e-4"/>
+      <geom type="box" pos="0 0 -${p.dd}" size="0.035 0.05 0.5" mass="0" rgba="0.1 0.44 0.64 1" ${NC}/>
+      <geom type="sphere" pos="0 0 -${p.dd}" size="0.05" mass="0" rgba="0.76 0.23 0.35 1" ${NC}/></body></worldbody></mujoco>`,
+  init: (m, d, p, S) => { d.qpos[0] = p.th0 * D2R; S.rt = 0; S.ry = [p.th0 * D2R, 0]; S.ups = []; S.prev = d.qpos[0]; S.I = 1 / 12 + p.dd * p.dd; },
+  after(m, d, p, S) { const q = d.qpos[0]; if ((S.prev < 0) !== (q < 0)) S.ups.push(d.time - q / ((q - S.prev) / m.opt.timestep)); S.prev = q; },
+  Texact: (dd, p) => { const I = 1 / 12 + dd * dd; return 4 * Math.sqrt(I / (p.g * dd)) * agmK(Math.sin(p.th0 * D2R / 2)); },
+  ghosts: [{body:'rod'}],
+  ghost(t, p, S) { const y = pendRef(S, t, y => [y[1], -p.g * p.dd / S.I * Math.sin(y[0])]); return [[[0, 0, 2.6], qyq(y[0])]]; },
+  measure(m, d, p, S) { const ups = S.ups, Tm = ups.length > 1 ? 2 * (ups[ups.length - 1] - ups[0]) / (ups.length - 1) : null;
+    return {rows:[['θ (rad)', d.qpos[0], S.ry[0]], ['주기 T (s)', Tm, this.Texact(p.dd, p)], ['작은 진폭 T₀ (s)', null, 2 * PI * Math.sqrt(S.I / (p.g * p.dd))], ['등가 단진자 길이 (m)', null, S.I / p.dd]],
+      sim: d.qpos[0], ref: S.ry[0], err: Math.abs(d.qpos[0] - S.ry[0]), Tm}; },
+  plot2: 'periodcurve',
+},
+{
+  key: 'bowling', title: '볼링공: 미끄럼에서 구름으로', formula: 'v(t) = v₀ − μg·t,  ωr(t) = (5/2)μg·t  →  t* = 2(v₀ − ω₀r) / (7μg),  v_f = (5v₀ + 2ω₀r) / 7',
+  explain: '회전 없이 미끄러지듯 던진 공은 마찰 때문에 느려지면서 동시에 회전이 붙고, 바닥과 닿는 점의 속도가 0이 되는 순간(t*)부터는 미끄럼 없이 굴러갑니다. 이때 속도는 처음의 5/7입니다. 역회전(음수)이나 전진 회전을 주면 최종 속도가 달라집니다. 흰 줄무늬로 회전을 볼 수 있습니다.',
+  dt: 0.0005, tol: 0.01, tolLabel: '허용 1 cm (연성 접촉)',
+  params: [
+    {id:'v0', label:'초속도 v₀', unit:' m/s', min:1, max:9, step:0.1, val:5},
+    {id:'mu', label:'마찰계수 μ', unit:'', min:0.05, max:0.6, step:0.01, val:0.2},
+    {id:'spin', label:'초기 회전 ω₀r / v₀ (음수 = 역회전)', unit:'', min:-1, max:2, step:0.05, val:0},
+  ],
+  cam: {pos:[-1, -6, 2.4], target:[2.5, 0, 0.3]}, follow: 'ball',
+  xml: p => `<mujoco>${opt(p, `gravity="0 0 -${G0}" cone="elliptic" impratio="10"`)}<worldbody>
+    <geom type="plane" size="40 1.5 0.1" pos="36 0 0" friction="0 0 0" rgba="0.6 0.65 0.7 1"/>
+    <body name="ball" pos="0 0 0.15"><freejoint/><geom type="sphere" size="0.15" mass="1" friction="${p.mu} 0 0" rgba="0.1 0.44 0.64 1"/>
+      <geom type="box" size="0.152 0.03 0.03" mass="0" rgba="1 1 1 1" ${NC}/><geom type="box" size="0.03 0.03 0.152" mass="0" rgba="1 1 1 1" ${NC}/></body></worldbody></mujoco>`,
+  init(m, d, p, S) { const r = 0.15, w0 = p.spin * p.v0 / r; d.qvel[0] = p.v0; d.qvel[4] = w0;
+    const u0 = p.v0 - w0 * r, sg = Math.sign(u0), mg = p.mu * G0; S.ts = Math.abs(u0) / (3.5 * mg);
+    S.sg = sg; S.w0 = w0; S.vf = (5 * p.v0 + 2 * w0 * r) / 7; },
+  st(t, p, S) { const r = 0.15, mg = p.mu * G0, ts = S.ts, sg = S.sg, a = -sg * mg, al = sg * 2.5 * mg / r;
+    if (t <= ts) return {x: p.v0 * t + a * t * t / 2, v: p.v0 + a * t, w: S.w0 + al * t, th: S.w0 * t + al * t * t / 2};
+    const x1 = p.v0 * ts + a * ts * ts / 2, th1 = S.w0 * ts + al * ts * ts / 2, vf = S.vf;
+    return {x: x1 + vf * (t - ts), v: vf, w: vf / r, th: th1 + vf / r * (t - ts)}; },
+  ghosts: [{body:'ball'}],
+  ghost(t, p, S) { const q = this.st(t, p, S); return [[[q.x, 0, 0.15], qyq(q.th)]]; },
+  stop: (m, d) => d.time > 6 || d.qpos[0] > 70,
+  measure(m, d, p, S) { const q = this.st(d.time, p, S);
+    return {rows:[['x (m)', d.qpos[0], q.x], ['속도 v (m/s)', d.qvel[0], q.v], ['ω·r (m/s)', d.qvel[4] * 0.15, q.w * 0.15], ['구름 시작 t* (s)', null, S.ts], ['최종 속도 v_f', null, S.vf]],
+      sim: d.qvel[0], ref: q.v, err: Math.abs(d.qpos[0] - q.x), simLabel: 'v'}; },
+},
+{
+  key: 'coupled', title: '결합 진동자와 맥놀이', formula: 'ω₁ = √(k/m),  ω₂ = √((k + 2k_c)/m),   x₁ = (A/2)(cos ω₁t + cos ω₂t)',
+  explain: '같은 두 상자를 약한 스프링(k_c)으로 이으면, 한쪽만 흔들어도 진동이 천천히 옆 상자로 건너갔다가 돌아옵니다(맥놀이). 운동은 두 정규모드의 합이고, 에너지가 한 번 옮겨 가는 데 걸리는 시간은 π/(ω₂ − ω₁) 입니다. 결합 스프링은 MuJoCo의 고정 텐던(x₂ − x₁)에 강성을 줘서 만들었습니다.',
+  dt: 0.0005, tol: 1e-6, tolLabel: '허용 1e-6 m',
+  params: [
+    {id:'m', label:'질량 m', unit:' kg', min:0.3, max:3, step:0.1, val:1},
+    {id:'k', label:'바깥 스프링 k', unit:' N/m', min:5, max:80, step:1, val:30},
+    {id:'kc', label:'결합 스프링 k_c', unit:' N/m', min:0.2, max:40, step:0.1, val:2},
+    {id:'A', label:'초기 변위 A', unit:' m', min:0.05, max:0.45, step:0.01, val:0.35},
+  ],
+  cam: {pos:[0, -4.6, 2.4], target:[0, 0, 0.3]},
+  xml: p => `<mujoco>${opt(p, 'gravity="0 0 0"')}<worldbody>${GROUND(3)}
+    <geom type="box" pos="-2.2 0 0.4" size="0.06 0.5 0.4" rgba="0.5 0.55 0.6 1" ${NC}/>
+    <geom type="box" pos="2.2 0 0.4" size="0.06 0.5 0.4" rgba="0.5 0.55 0.6 1" ${NC}/>
+    <body name="b1" pos="-0.8 0 0.3"><joint name="j1" type="slide" axis="1 0 0" stiffness="${p.k}"/><geom type="box" size="0.22 0.22 0.22" mass="${p.m}" rgba="0.76 0.23 0.35 1" ${NC}/></body>
+    <body name="b2" pos="0.8 0 0.3"><joint name="j2" type="slide" axis="1 0 0" stiffness="${p.k}"/><geom type="box" size="0.22 0.22 0.22" mass="${p.m}" rgba="0.1 0.44 0.64 1" ${NC}/></body>
+    </worldbody><tendon><fixed stiffness="${p.kc}"><joint joint="j1" coef="-1"/><joint joint="j2" coef="1"/></fixed></tendon></mujoco>`,
+  init(m, d, p, S) { d.qpos[0] = p.A; S.w1 = Math.sqrt(p.k / p.m); S.w2 = Math.sqrt((p.k + 2 * p.kc) / p.m); },
+  xr(t, p, S) { const a = Math.cos(S.w1 * t), b = Math.cos(S.w2 * t); return [p.A / 2 * (a + b), p.A / 2 * (a - b)]; },
+  ghosts: [{body:'b1'}, {body:'b2'}],
+  ghost(t, p, S) { const [x1, x2] = this.xr(t, p, S); return [[[-0.8 + x1, 0, 0.3], [1, 0, 0, 0]], [[0.8 + x2, 0, 0.3], [1, 0, 0, 0]]]; },
+  springs: [{a:{fixed:[-2.14, 0, 0.3]}, b:{body:'b1', off:-0.22}}, {a:{body:'b1', off:0.22}, b:{body:'b2', off:-0.22}, r:0.06}, {a:{body:'b2', off:0.22}, b:{fixed:[2.14, 0, 0.3]}}],
+  measure(m, d, p, S) { const [x1, x2] = this.xr(d.time, p, S);
+    return {rows:[['x₁ (m)', d.qpos[0], x1], ['x₂ (m)', d.qpos[1], x2], ['모드 1 ω₁ (rad/s)', null, S.w1], ['모드 2 ω₂ (rad/s)', null, S.w2], ['에너지 이동 시간 (s)', null, PI / (S.w2 - S.w1)]],
+      sim: d.qpos[0], ref: x1, err: Math.max(Math.abs(d.qpos[0] - x1), Math.abs(d.qpos[1] - x2))}; },
+},
+{
+  key: 'catenary', title: '현수선 (늘어진 사슬)', formula: 'z(x) = a·cosh(x/a) + c,   L = 2a·sinh(D / 2a)',
+  explain: '양 끝을 고정한 사슬은 중력과 장력이 평형을 이루며 포물선이 아니라 쌍곡코사인 곡선(현수선)이 됩니다. 사슬 24마디를 공 관절로 잇고 끝을 등식 구속으로 묶었습니다. 감쇠로 몇 초 안에 멈추면, 주황 점선(해석해)과 겹치는지 보세요. 사슬을 잡아당겼다 놓으면 다시 같은 모양으로 돌아옵니다. 이 실험은 안정성 때문에 implicitfast 적분기로 고정됩니다.',
+  dt: 0.002, tol: 0.01, tolLabel: '허용 1 cm (24마디 근사)', forceInteg: 'implicitfast', recovers: true, legend: ['MuJoCo 사슬'],
+  params: [
+    {id:'Lc', label:'사슬 길이 L', unit:' m', min:2.2, max:4.5, step:0.05, val:3},
+    {id:'D', label:'지지점 간격 D', unit:' m', min:0.4, max:2.6, step:0.05, val:2},
+  ],
+  cam: {pos:[0, -5.2, 2], target:[0, 0, 1.8]},
+  xml: p => { const N = 24, D = Math.min(p.D, p.Lc * 0.95), l = p.Lc / N, H = 3.2;
+    let inner = `<site name="end" pos="${l} 0 0"/>`;
+    for (let i = N - 1; i >= 0; i--) inner = `<body pos="${i === 0 ? -D / 2 : l} 0 ${i === 0 ? H : 0}"><joint type="ball" damping="0.2"/>
+      <geom type="capsule" fromto="0 0 0 ${l} 0 0" size="0.022" mass="${1 / N}" rgba="${i % 2 ? '0.1 0.44 0.64 1' : '0.2 0.55 0.75 1'}" ${NC}/>${inner}</body>`;
+    return `<mujoco>${opt(p, `gravity="0 0 -${G0}"`)}<worldbody>${GROUND(3)}<site name="anchor" pos="${D / 2} 0 ${H}"/>
+      <geom type="box" pos="${-D / 2 - 0.06} 0 ${H / 2}" size="0.04 0.04 ${H / 2}" rgba="0.5 0.55 0.6 1" ${NC}/>
+      <geom type="box" pos="${D / 2 + 0.06} 0 ${H / 2}" size="0.04 0.04 ${H / 2}" rgba="0.5 0.55 0.6 1" ${NC}/>
+      ${inner}</worldbody><equality><connect site1="end" site2="anchor" solref="0.01 1"/></equality></mujoco>`; },
+  init(m, d, p, S) { const D = Math.min(p.D, p.Lc * 0.95); S.D = D; S.H = 3.2;
+    let lo = 1e-3, hi = 1e3; for (let i = 0; i < 200; i++) { const a = Math.sqrt(lo * hi); (2 * a * Math.sinh(D / (2 * a)) > p.Lc) ? lo = a : hi = a; }
+    S.a = Math.sqrt(lo * hi); S.c = S.H - S.a * Math.cosh(D / (2 * S.a)); },
+  zr: (x, S) => S.a * Math.cosh(x / S.a) + S.c,
+  ghostLine(p, S) { const pts = []; for (let i = 0; i <= 80; i++) { const x = -S.D / 2 + S.D * i / 80; pts.push([x, 0, this.zr(x, S)]); } return pts; },
+  measure(m, d, p, S) { const xp = d.xpos; let e = 0, zmin = 1e9;
+    for (let b = 1; b < m.nbody; b++) { const x = xp[3 * b], z = xp[3 * b + 2]; e = Math.max(e, Math.abs(z - this.zr(x, S))); zmin = Math.min(zmin, z); }
+    const ste = d.site_xpos, gap = Math.hypot(ste[3] - ste[0], ste[4] - ste[1], ste[5] - ste[2]);
+    return {rows:[['처짐 깊이 (m)', S.H - zmin, S.H - this.zr(0, S)], ['최대 편차 (m)', e, 0], ['현수선 상수 a (m)', null, S.a], ['끝점 구속 오차 (m)', gap, 0]],
+      sim: S.H - zmin, ref: S.H - this.zr(0, S), err: e, settling: d.time < 8}; },
+},
+];
+
+// ======================================================================= 엔진 로드
+let mj, OBJ_BODY = 1, OBJ_GEOM = 5;
+try {
+  const mod = await import('https://cdn.jsdelivr.net/npm/@mujoco/mujoco@4.0.0/mujoco.js');
+  mj = await mod.default();
+  OBJ_BODY = mj.mjtObj.mjOBJ_BODY.value; OBJ_GEOM = mj.mjtObj.mjOBJ_GEOM.value;
+  $('loading').hidden = true;
+} catch (e) {
+  $('loading').innerHTML = `<b>MuJoCo 엔진을 불러오지 못했습니다</b><span>${String(e && e.message || e).slice(0, 200)}</span><span>브라우저가 WebAssembly를 막고 있을 수 있습니다. 다른 브라우저에서 다시 열어 보세요.</span>`;
+  throw e;
+}
+$('ver').textContent = 'WASM ' + (mj.mj_versionString ? mj.mj_versionString() : '');
+
+// ======================================================================= three.js
+const canvas = $('gl'), stage = $('stage');
+const renderer = new THREE.WebGLRenderer({canvas, antialias: true, preserveDrawingBuffer: true});
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.shadowMap.enabled = true; renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+const scene3 = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(42, 1.6, 0.05, 400);
+const controls = new THREE.OrbitControls(camera, canvas); controls.enableDamping = true;
+const V = v => new THREE.Vector3(v[0], v[2], -v[1]);
+scene3.add(new THREE.HemisphereLight(0xffffff, 0x445566, 0.8));
+const sun = new THREE.DirectionalLight(0xffffff, 0.75); sun.castShadow = true; sun.shadow.mapSize.set(2048, 2048);
+scene3.add(sun, sun.target);
+
+function geomMesh(type, size, rgba, matOverride) {
+  const mat = matOverride || new THREE.MeshStandardMaterial({color: new THREE.Color(rgba[0], rgba[1], rgba[2]), roughness: 0.5, transparent: rgba[3] < 1, opacity: rgba[3]});
+  let o, seg = matOverride ? 14 : 36;
+  if (type === 0) { const sx = size[0] || 20, sy = size[1] || 20;
+    const grp = new THREE.Group();
+    const pl = new THREE.Mesh(new THREE.PlaneGeometry(2 * sx, 2 * sy), new THREE.MeshStandardMaterial({color: css('--panel'), roughness: 0.95}));
+    pl.receiveShadow = true; grp.add(pl);
+    const n = Math.max(sx, sy), gh = new THREE.GridHelper(2 * n, Math.round(2 * n / (n > 10 ? 2 : 0.5)), css('--line'), css('--line'));
+    gh.rotation.x = PI / 2; gh.position.z = 0.002; gh.scale.set(sx / n, 1, sy / n); grp.add(gh); return grp; }
+  if (type === 2) o = new THREE.Mesh(new THREE.SphereGeometry(size[0], seg, seg / 2 | 0), mat);
+  else if (type === 4) { o = new THREE.Mesh(new THREE.SphereGeometry(1, seg, seg / 2 | 0), mat); o.scale.set(size[0], size[1], size[2]); }
+  else if (type === 6) o = new THREE.Mesh(new THREE.BoxGeometry(2 * size[0], 2 * size[1], 2 * size[2]), mat);
+  else if (type === 5) { o = new THREE.Mesh(new THREE.CylinderGeometry(size[0], size[0], 2 * size[1], seg), mat); o.rotation.x = PI / 2; const g = new THREE.Group(); g.add(o); o.castShadow = !matOverride; return g; }
+  else if (type === 3) { const g = new THREE.Group();
+    const c = new THREE.Mesh(new THREE.CylinderGeometry(size[0], size[0], 2 * size[1], seg / 2 | 0), mat); c.rotation.x = PI / 2; g.add(c);
+    for (const s of [-1, 1]) { const sp = new THREE.Mesh(new THREE.SphereGeometry(size[0], seg / 2 | 0, 8), mat); sp.position.z = s * size[1]; g.add(sp); }
+    g.traverse(x => x.castShadow = !matOverride); return g; }
+  else return new THREE.Group();
+  o.castShadow = !matOverride; return o;
+}
+
+const V0 = a => new THREE.Vector3(a[0], a[1], a[2]);
+// ======================================================================= 상태
+let cur, P = {}, m = null, d = null, S = {}, root, world, bodyGroups = [], ghostGroups = [], trails = [], springs = [], ropes = [], arrow = null;
+let playing = true, speed = 1, last = performance.now(), hist = [], perturbed = false, finished = false, integ = 'RK4';
+const grab = {active: false, body: -1, target: new THREE.Vector3(), plane: new THREE.Plane(), prev: null};
+
+function paramsFor(sc) { let saved = {}; try { saved = JSON.parse(localStorage.getItem('mjlab-' + sc.key) || '{}'); } catch (e) {}
+  const p = {}; sc.params.forEach(q => p[q.id] = (q.id in saved) ? saved[q.id] : q.val); return p; }
+
+function buildParams() {
+  const box = $('params'); box.innerHTML = '';
+  cur.params.forEach(q => {
+    const w = document.createElement('div'); w.className = 'param' + (q.type === 'check' ? ' chk' : '');
+    if (q.type === 'check') {
+      w.innerHTML = `<input type="checkbox" id="p-${cur.key}-${q.id}" ${P[q.id] ? 'checked' : ''}><label for="p-${cur.key}-${q.id}">${q.label}</label>`;
+      w.querySelector('input').onchange = e => { P[q.id] = e.target.checked; changed(); };
+    } else {
+      const show = v => q.id === 'eps' ? `1e${v}` : `${(+v).toFixed(q.step < 0.01 ? 3 : q.step < 0.1 ? 2 : q.step < 1 ? 1 : 0)}${q.unit}`;
+      w.innerHTML = `<label for="p-${cur.key}-${q.id}">${q.label}</label><output id="o-${cur.key}-${q.id}">${show(P[q.id])}</output>
+        <input type="range" id="p-${cur.key}-${q.id}" min="${q.min}" max="${q.max}" step="${q.step}" value="${P[q.id]}">`;
+      const inp = w.querySelector('input'), out = w.querySelector('output');
+      inp.oninput = () => { P[q.id] = +inp.value; out.textContent = show(inp.value); changed(); };
+    }
+    box.appendChild(w);
+  });
+}
+let deb = null;
+function changed() { try { localStorage.setItem('mjlab-' + cur.key, JSON.stringify(P)); } catch (e) {} clearTimeout(deb); deb = setTimeout(rebuild, 120); }
+
+function rebuild() {
+  if (d) d.delete(); if (m) m.delete();
+  const p = Object.assign({}, P, {__dt: cur.dt, __integ: cur.forceInteg || integ});
+  $('integ').disabled = !!cur.forceInteg; $('integ').value = cur.forceInteg || integ;
+  m = mj.MjModel.from_xml_string(cur.xml(p)); d = new mj.MjData(m);
+  if (cur.follow && cur.cam) { camera.position.copy(V(cur.cam.pos)); controls.target.copy(V(cur.cam.target)); }
+  S = {}; if (cur.setup) cur.setup(m, d, P, S); cur.init(m, d, P, S); mj.mj_forward(m, d);
+  hist = []; perturbed = false; finished = false; $('flag').hidden = true;
+  // three scene
+  if (root) scene3.remove(root);
+  root = new THREE.Group(); root.rotation.x = -PI / 2; scene3.add(root);
+  world = new THREE.Group(); root.add(world);
+  if (cur.tilt) world.rotation.y = cur.tilt(P) * D2R;
+  const gt = m.geom_type, gs = m.geom_size, gp = m.geom_pos, gq = m.geom_quat, gb = m.geom_bodyid, gr = m.geom_rgba;
+  bodyGroups = []; for (let b = 0; b < m.nbody; b++) { const g = new THREE.Group(); world.add(g); bodyGroups.push(g); }
+  const addGeom = (gi, parent, mat) => {
+    const o = geomMesh(gt[gi], [gs[3 * gi], gs[3 * gi + 1], gs[3 * gi + 2]], [gr[4 * gi], gr[4 * gi + 1], gr[4 * gi + 2], gr[4 * gi + 3]], mat);
+    const h = new THREE.Group(); h.add(o); h.position.set(gp[3 * gi], gp[3 * gi + 1], gp[3 * gi + 2]);
+    h.quaternion.set(gq[4 * gi + 1], gq[4 * gi + 2], gq[4 * gi + 3], gq[4 * gi]); h.userData.body = gb[gi]; parent.add(h); };
+  for (let gi = 0; gi < m.ngeom; gi++) if (gr[4 * gi + 3] > 0) addGeom(gi, bodyGroups[gb[gi]]);
+  // ghosts
+  ghostGroups = (cur.ghosts || []).map(gspec => {
+    const g = new THREE.Group(); world.add(g);
+    const mat = new THREE.MeshBasicMaterial({color: css(gspec.alt ? '--alt' : '--ref'), wireframe: true, transparent: true, opacity: 0.85});
+    if (gspec.ghostShape) g.add(geomMesh(2, [gspec.ghostShape.size], [0, 0, 0, 1], mat));
+    else { const b = mj.mj_name2id(m, OBJ_BODY, gspec.body);
+      for (let gi = 0; gi < m.ngeom; gi++) if (gb[gi] === b && gr[4 * gi + 3] > 0) addGeom(gi, g, mat); }
+    g.visible = !gspec.show || gspec.show(P); return g; });
+  // trails
+  trails = (cur.trail || []).map((t, i) => { const geo = new THREE.BufferGeometry(); geo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(3 * 6000), 3)); geo.setDrawRange(0, 0);
+    const col = cur.colors ? css(cur.colors[i]) : css('--sim');
+    const ln = new THREE.Line(geo, new THREE.LineBasicMaterial({color: col, transparent: true, opacity: 0.7})); world.add(ln);
+    const spec = typeof t === 'string' ? {body: mj.mj_name2id(m, OBJ_BODY, t)} : {geom: mj.mj_name2id(m, OBJ_GEOM, t.geom)};
+    return {ln, geo, n: 0, spec}; });
+  springs = (cur.springs || []).map(s => { const ln = new THREE.Line(new THREE.BufferGeometry(), new THREE.LineBasicMaterial({color: css('--muted')})); world.add(ln);
+    const ends = [s.a, s.b].map(e => e.body ? {b: mj.mj_name2id(m, OBJ_BODY, e.body), off: e.off} : {fixed: e.fixed});
+    return {ln, s, ends}; });
+  if (cur.ghostLine) { const pts = cur.ghostLine(P, S).map(V0);
+    const ln = new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts), new THREE.LineDashedMaterial({color: css('--ref'), dashSize: 0.06, gapSize: 0.04, linewidth: 2}));
+    ln.computeLineDistances(); world.add(ln); }
+  ropes = (cur.ropes || []).map(r => { const ln = new THREE.Line(new THREE.BufferGeometry(), new THREE.LineBasicMaterial({color: css('--ink')})); world.add(ln);
+    return {ln, r, b: mj.mj_name2id(m, OBJ_BODY, r.body)}; });
+  if (cur.arrow) { const L = cur.arrow(S), n = Math.hypot(...L), dir = new THREE.Vector3(L[0] / n, L[1] / n, L[2] / n);
+    arrow = new THREE.ArrowHelper(dir, new THREE.Vector3(0, 0, 1.5).addScaledVector(dir, -1.4), 2.8, css('--ref'), 0.25, 0.12); world.add(arrow); } else arrow = null;
+  // light & bg
+  const R = 9; sun.position.copy(V([cur.cam.target[0] + 4, cur.cam.target[1] - 3, 9])); sun.target.position.copy(V([cur.cam.target[0], cur.cam.target[1], 0]));
+  Object.assign(sun.shadow.camera, {left: -R, right: R, top: R, bottom: -R, near: 0.1, far: 40}); sun.shadow.camera.updateProjectionMatrix();
+  scene3.background = new THREE.Color(css('--stage'));
+  // legend
+  const items = [];
+  (cur.legend ? cur.legend : ['MuJoCo', '해석해']).forEach((l, i) => {
+    const isG = cur.ghosts && i >= (cur.legend ? cur.legend.length - cur.ghosts.length : 1);
+    const gi = isG ? i - (cur.legend ? cur.legend.length - cur.ghosts.length : 1) : -1;
+    const alt = gi >= 0 && cur.ghosts[gi] && cur.ghosts[gi].alt;
+    if (gi >= 0 && cur.ghosts[gi] && cur.ghosts[gi].show && !cur.ghosts[gi].show(P)) return;
+    const col = cur.colors && cur.colors[i] ? `style="background:var(${cur.colors[i]})"` : '';
+    items.push(`<span><i class="${isG ? (alt ? 'a' : 'g') : ''}" ${col}></i>${l}</span>`); });
+  if (cur.ghostLine) items.push(`<span><i class="g"></i>현수선 해석해</span>`);
+  $('legend').innerHTML = items.join('');
+  sync(); record();
+}
+
+function load(k) {
+  cur = SCENES[k]; P = paramsFor(cur);
+  document.querySelectorAll('#chips button').forEach((b, j) => b.setAttribute('aria-pressed', j === k));
+  $('ttl').textContent = cur.title; $('fml').textContent = cur.formula; $('explain').textContent = cur.explain;
+  $('p1t').textContent = cur.plot2 === 'resonance' ? '공진 곡선' : cur.plot2 === 'periodcurve' ? '받침점 위치에 따른 주기' : '시간 이력';
+  buildParams();
+  camera.position.copy(V(cur.cam.pos)); controls.target.copy(V(cur.cam.target)); controls.update();
+  try { localStorage.setItem('mjlab-scene', k); } catch (e) {}
+  rebuild(); resize();
+}
+
+// ======================================================================= 시뮬레이션 루프
+function sync() {
+  const xp = d.xpos, xq = d.xquat;
+  for (let b = 0; b < m.nbody; b++) { const g = bodyGroups[b]; g.position.set(xp[3 * b], xp[3 * b + 1], xp[3 * b + 2]); g.quaternion.set(xq[4 * b + 1], xq[4 * b + 2], xq[4 * b + 3], xq[4 * b]); }
+  if (cur.ghost && ghostGroups.length) cur.ghost(d.time, P, S).forEach(([pp, q], i) => { const g = ghostGroups[i]; if (!g) return; g.position.set(...pp); g.quaternion.set(q[1], q[2], q[3], q[0]); });
+  trails.forEach(t => { const src = t.spec.geom !== undefined ? d.geom_xpos : xp, i = 3 * (t.spec.geom !== undefined ? t.spec.geom : t.spec.body);
+    if (t.n < 6000) { t.geo.attributes.position.setXYZ(t.n++, src[i], src[i + 1], src[i + 2]); t.geo.attributes.position.needsUpdate = true; t.geo.setDrawRange(0, t.n); } });
+  springs.forEach(({ln, s, ends}) => { const P2 = ends.map(e => e.fixed ? e.fixed : [xp[3 * e.b] + e.off, xp[3 * e.b + 1], xp[3 * e.b + 2]]);
+    const a = P2[0], bx = P2[1][0], pts = [], n = 14, rr = s.r || 0.1;
+    for (let i = 0; i <= n * 12; i++) { const u = i / (n * 12), an = u * n * 2 * PI; pts.push(new THREE.Vector3(a[0] + u * (bx - a[0]), a[1] + rr * Math.cos(an), a[2] + rr * Math.sin(an))); }
+    ln.geometry.setFromPoints(pts); });
+  ropes.forEach(({ln, r, b}) => { ln.geometry.setFromPoints([V0(r.top), new THREE.Vector3(xp[3 * b], xp[3 * b + 1], xp[3 * b + 2] + r.h(P))]); });
+}
+
+function applyGrab() {
+  const fr = d.xfrc_applied; for (let i = 0; i < fr.length; i++) fr[i] = 0;
+  if (!grab.active) return;
+  const b = grab.body, xi = d.xipos, pos = new THREE.Vector3(xi[3 * b], xi[3 * b + 1], xi[3 * b + 2]);
+  const tw = world.worldToLocal(grab.target.clone()); // 화면 좌표 → MuJoCo 좌표
+  const vel = grab.prev ? pos.clone().sub(grab.prev).divideScalar(Math.max(1e-4, grab.dtf)) : new THREE.Vector3();
+  let mass = 0; for (let k = 0; k < m.nbody; k++) if (m.body_rootid[k] === m.body_rootid[b] && k >= b) mass += m.body_mass[k];
+  mass = Math.max(mass, 0.05);
+  const f = tw.sub(pos).multiplyScalar(80 * mass).sub(vel.multiplyScalar(14 * mass));
+  fr[6 * b] = f.x; fr[6 * b + 1] = f.y; fr[6 * b + 2] = f.z;
+}
+
+function tick(now) {
+  const dtf = Math.min(1 / 20, (now - last) / 1000); last = now;
+  if (playing && !finished && m) {
+    const n = Math.max(1, Math.round(dtf * speed / m.opt.timestep));
+    if (grab.active) { const xi = d.xipos, b = grab.body; grab.prev = new THREE.Vector3(xi[3 * b], xi[3 * b + 1], xi[3 * b + 2]); grab.dtf = n * m.opt.timestep; }
+    applyGrab();
+    for (let i = 0; i < n; i++) {
+      if (cur.control) cur.control(m, d, P, S);
+      mj.mj_step(m, d);
+      if (cur.after) cur.after(m, d, P, S);
+      if (cur.stop && cur.stop(m, d, P, S) && !grab.active) { finished = true; break; }
+    }
+    sync(); record();
+    if (cur.follow) { const b = mj.mj_name2id(m, OBJ_BODY, cur.follow), nx = d.xpos[3 * b], dx = nx - (S._fx === undefined ? cur.cam.target[0] : S._fx); S._fx = nx;
+      if (nx > cur.cam.target[0]) { camera.position.x += dx; controls.target.x += dx; } }
+  }
+  controls.update(); renderer.render(scene3, camera);
+  requestAnimationFrame(tick);
+}
+
+function record() {
+  const r = cur.measure(m, d, P, S);
+  hist.push([d.time, typeof r.sim === 'number' ? r.sim : NaN, r.ref, perturbed ? NaN : Math.max(r.err, 1e-17), r.plot2]);
+  if (hist.length > 4000) hist.splice(0, hist.length - 4000);
+  $('time').textContent = `t = ${d.time.toFixed(3)} s${finished ? ' · 종료' : ''}`;
+  $('read').innerHTML = `<span class="h">항목</span><span class="h" style="text-align:right">MuJoCo</span><span class="h" style="text-align:right">해석해</span>` +
+    r.rows.map(([k, s, rf]) => `<span class="k">${k}</span><span class="s">${typeof s === 'string' ? s : fmt(s)}</span><span class="r">${fmt(rf)}</span>`).join('');
+  const [tol, tl] = r.tolOverride || [cur.tol, cur.tolLabel];
+  $('errv').textContent = perturbed ? '–' : r.err.toExponential(2); $('tolv').textContent = tl;
+  const vp = $('vp');
+  if (perturbed) { vp.textContent = '비교 중단'; vp.className = 'pill w'; }
+  else if (r.settling) { vp.textContent = '안정화 중'; vp.className = 'pill w'; }
+  else { const ok = r.err <= tol; vp.textContent = ok ? 'PASS' : 'FAIL'; vp.className = 'pill' + (ok ? '' : ' f'); }
+  S._last = r;
+  drawPlots();
+}
+
+// ======================================================================= 그래프
+function prep(cv) { const r = cv.getBoundingClientRect(), k = Math.min(devicePixelRatio, 2), w = Math.max(10, Math.round(r.width * k)), h = Math.round(r.height * k);
+  if (cv.width !== w || cv.height !== h) { cv.width = w; cv.height = h; }
+  const g = cv.getContext('2d'); g.setTransform(k, 0, 0, k, 0, 0); g.clearRect(0, 0, r.width, r.height); return [g, r.width, r.height]; }
+function axes(g, W, H, x0, x1, y0, y1, log, m) {
+  g.font = '10px IBM Plex Mono, monospace'; g.fillStyle = css('--muted'); g.strokeStyle = css('--line'); g.lineWidth = 1;
+  const ticks = log ? (() => { const o = []; const st = Math.max(1, Math.ceil((y1 - y0) / 4)); for (let k = Math.ceil(y0); k <= y1; k += st) o.push(k); return o; })()
+                    : [y0 + (y1 - y0) * 0.1, (y0 + y1) / 2, y1 - (y1 - y0) * 0.1];
+  ticks.forEach(v => { const y = H - m.b - (v - y0) / (y1 - y0) * (H - m.t - m.b); g.beginPath(); g.moveTo(m.l, y); g.lineTo(W - m.r, y); g.stroke();
+    g.textAlign = 'right'; g.fillText(log ? '1e' + v : fmtTick(v), m.l - 4, y + 3); });
+  g.textAlign = 'center'; [x0, (x0 + x1) / 2, x1].forEach((t, i) => g.fillText(t.toFixed(1) + (m.xu || 's'), [m.l + 14, (m.l + W - m.r) / 2, W - m.r - 14][i], H - 3));
+}
+const fmtTick = v => { const a = Math.abs(v); return a !== 0 && (a < 0.01 || a >= 1e4) ? v.toExponential(0) : (+v.toPrecision(3)).toString(); };
+function line(g, xs, ys, X, Y, col, dash) { g.strokeStyle = col; g.lineWidth = 1.6; g.setLineDash(dash ? [5, 4] : []); g.beginPath(); let pen = false;
+  for (let i = 0; i < xs.length; i++) { const y = ys[i]; if (!Number.isFinite(y)) { pen = false; continue; } const px = X(xs[i]), py = Y(y); pen ? g.lineTo(px, py) : g.moveTo(px, py); pen = true; } g.stroke(); g.setLineDash([]); }
+function drawPlots() {
+  const p1 = $('p1'), p2 = $('p2');
+  if (!hist.length) { prep(p1); prep(p2); return; }
+  const M = {l: 46, r: 8, t: 6, b: 16};
+  { const [g, W, H] = prep(p1);
+    if (cur.plot2 === 'periodcurve') {
+      const N = 120, xs = [], ys = []; for (let i = 0; i <= N; i++) { const dd = 0.02 + 0.48 * i / N; xs.push(dd); ys.push(cur.Texact(dd, P)); }
+      const y0 = Math.min(...ys) * 0.9, y1 = Math.min(Math.max(...ys), Math.min(...ys) * 3);
+      const X = v => M.l + (v - 0.02) / 0.48 * (W - M.l - M.r), Y = v => H - M.b - (Math.min(v, y1) - y0) / (y1 - y0) * (H - M.t - M.b);
+      axes(g, W, H, 0.02, 0.5, y0, y1, false, Object.assign({}, M, {xu: 'm'}));
+      line(g, xs, ys, X, Y, css('--ref'), true);
+      const dm = 1 / Math.sqrt(12); g.strokeStyle = css('--muted'); g.setLineDash([2, 3]); g.beginPath(); g.moveTo(X(dm), M.t); g.lineTo(X(dm), H - M.b); g.stroke(); g.setLineDash([]);
+      g.fillStyle = css('--muted'); g.textAlign = 'left'; g.fillText('L/√12', X(dm) + 3, M.t + 10);
+      const Tm = S._last && S._last.Tm; g.fillStyle = css('--sim'); g.globalAlpha = Tm ? 1 : 0.35; g.beginPath(); g.arc(X(P.dd), Y(Tm || cur.Texact(P.dd, P)), 4.5, 0, 2 * PI); g.fill(); g.globalAlpha = 1;
+      $('p1c').innerHTML = `<b style="color:var(--ref)">┅</b> 정확한 주기 T(d) (θ₀ = ${P.th0}°) &nbsp; <b style="color:var(--sim)">●</b> 측정 주기 ${Tm ? '' : '(한 주기 대기 중)'} · 가로축 d`;
+    } else if (cur.plot2 === 'resonance') {
+      const w0 = S.w0, wm = Math.max(3 * w0, P.w * 1.2), N = 200, xs = [], ys = [];
+      for (let i = 0; i <= N; i++) { const w = wm * i / N; xs.push(w); ys.push((P.F / P.m) / Math.hypot(w0 * w0 - w * w, 2 * P.z * w0 * w)); }
+      const y1 = Math.min(Math.max(...ys), Math.max(S.A * 3, 0.05)) * 1.1;
+      const X = w => M.l + w / wm * (W - M.l - M.r), Y = a => H - M.b - Math.min(a, y1) / y1 * (H - M.t - M.b);
+      axes(g, W, H, 0, wm, 0, y1, false, Object.assign({}, M, {xu: ''}));
+      line(g, xs, ys, X, Y, css('--ref'), true);
+      g.strokeStyle = css('--muted'); g.setLineDash([2, 3]); g.beginPath(); g.moveTo(X(w0), M.t); g.lineTo(X(w0), H - M.b); g.stroke(); g.setLineDash([]);
+      g.fillStyle = css('--muted'); g.textAlign = 'left'; g.fillText('ω₀', X(w0) + 3, M.t + 10);
+      const last = S._last;
+      g.fillStyle = css('--sim'); g.beginPath(); g.arc(X(P.w), Y(last && last.steady ? S.amp : S.A), 4.5, 0, 2 * PI); g.globalAlpha = last && last.steady ? 1 : 0.35; g.fill(); g.globalAlpha = 1;
+      $('p1c').innerHTML = `<b style="color:var(--ref)">┅</b> 이론 진폭 A(ω) &nbsp; <b style="color:var(--sim)">●</b> 측정 진폭 ${last && last.steady ? '' : '(정상상태 대기 중)'} · 가로축 ω (rad/s)`;
+    } else {
+      const ts = hist.map(h => h[0]), t0 = ts[0], t1 = Math.max(ts[ts.length - 1], t0 + 1e-6);
+      const useSep = cur.key === 'double';
+      const a = hist.map(h => useSep ? h[4] : h[1]), b = hist.map(h => useSep ? NaN : h[2]);
+      let lo = Infinity, hi = -Infinity; a.concat(b).forEach(v => { if (Number.isFinite(v)) { lo = Math.min(lo, v); hi = Math.max(hi, v); } });
+      if (useSep) { lo = Math.log10(Math.max(lo, 1e-12)); hi = Math.log10(Math.max(hi, 1e-11)); }
+      const pad = (hi - lo) * 0.08 || Math.max(Math.abs(hi) * 0.05, 0.5); lo -= pad; hi += pad;
+      const X = t => M.l + (t - t0) / (t1 - t0) * (W - M.l - M.r), Y = v => H - M.b - ((useSep ? Math.log10(Math.max(v, 1e-12)) : v) - lo) / (hi - lo) * (H - M.t - M.b);
+      axes(g, W, H, t0, t1, lo, hi, useSep, M);
+      line(g, ts, a, X, Y, css('--sim'), false); if (!useSep) line(g, ts, b, X, Y, css('--ref'), true);
+      $('p1c').innerHTML = useSep ? `<b style="color:var(--sim)">━</b> 두 진자 끝점 거리 (로그) — 기울기가 리아푸노프 지수` :
+        (cur.key === 'spin' ? `<b style="color:var(--sim)">━</b> 회전축 각속도 &nbsp; <b style="color:var(--ref)">┅</b> 초기값` : `<b style="color:var(--sim)">━</b> MuJoCo &nbsp; <b style="color:var(--ref)">┅</b> 해석해`);
+    }
+  }
+  { const [g, W, H] = prep(p2); const ts = hist.map(h => h[0]), t0 = ts[0], t1 = Math.max(ts[ts.length - 1], t0 + 1e-6);
+    const e = hist.map(h => h[3]); let lo = Infinity, hi = -Infinity; e.forEach(v => { if (Number.isFinite(v)) { const l = Math.log10(v); lo = Math.min(lo, l); hi = Math.max(hi, l); } });
+    if (!Number.isFinite(lo)) { lo = -12; hi = 0; }
+    const tl = Math.log10((S._last && S._last.tolOverride ? S._last.tolOverride[0] : cur.tol));
+    lo = Math.floor(Math.min(lo, tl - 1)); hi = Math.ceil(Math.max(hi, tl + 1));
+    const X = t => M.l + (t - t0) / (t1 - t0) * (W - M.l - M.r), Y = v => H - M.b - (Math.log10(v) - lo) / (hi - lo) * (H - M.t - M.b);
+    axes(g, W, H, t0, t1, lo, hi, true, M);
+    g.strokeStyle = css('--fail'); g.setLineDash([4, 3]); g.beginPath(); g.moveTo(M.l, Y(10 ** tl)); g.lineTo(W - M.r, Y(10 ** tl)); g.stroke(); g.setLineDash([]);
+    g.fillStyle = css('--fail'); g.textAlign = 'right'; g.fillText('허용치', W - M.r - 2, Y(10 ** tl) - 3);
+    line(g, ts, e, X, Y, css('--err'), false); }
+}
+
+// ======================================================================= 입력
+function resize() { const r = stage.getBoundingClientRect(); renderer.setSize(r.width, r.height, false); camera.aspect = r.width / r.height; camera.updateProjectionMatrix(); }
+addEventListener('resize', () => { resize(); drawPlots(); });
+const ray = new THREE.Raycaster(), ndc = new THREE.Vector2();
+function setNdc(e) { const r = canvas.getBoundingClientRect(); ndc.set((e.clientX - r.left) / r.width * 2 - 1, -(e.clientY - r.top) / r.height * 2 + 1); ray.setFromCamera(ndc, camera); }
+canvas.addEventListener('pointerdown', e => {
+  if (!m) return; setNdc(e);
+  const targets = bodyGroups.slice(1).filter((g, i) => { const b = i + 1; return m.body_dofnum[b] > 0 || m.body_parentid[b] > 0 && m.body_dofnum[m.body_parentid[b]] > 0; });
+  const hits = ray.intersectObjects(targets, true).filter(h => h.object.type === 'Mesh');
+  if (!hits.length) return;
+  let o = hits[0].object; while (o && o.userData.body === undefined) o = o.parent;
+  if (!o) return;
+  grab.active = true; grab.body = o.userData.body; grab.prev = null;
+  grab.plane.setFromNormalAndCoplanarPoint(camera.getWorldDirection(new THREE.Vector3()), hits[0].point);
+  grab.target.copy(hits[0].point);
+  controls.enabled = false; canvas.setPointerCapture(e.pointerId);
+  perturbed = true; $('flag').hidden = false; finished = false;
+}, {capture: true});
+canvas.addEventListener('pointermove', e => { if (!grab.active) return; setNdc(e); const p = new THREE.Vector3(); if (ray.ray.intersectPlane(grab.plane, p)) grab.target.copy(p); });
+const release = () => { if (!grab.active) return; grab.active = false; controls.enabled = true; if (cur.recovers) { perturbed = false; $('flag').hidden = true; } };
+canvas.addEventListener('pointerup', release); canvas.addEventListener('pointercancel', release);
+
+const syncPlay = () => $('play').textContent = playing ? '❚❚' : '▶';
+$('play').onclick = () => { playing = !playing; syncPlay(); };
+$('reset').onclick = () => rebuild();
+$('defaults').onclick = () => { cur.params.forEach(q => P[q.id] = q.val); try { localStorage.removeItem('mjlab-' + cur.key); } catch (e) {} buildParams(); rebuild(); };
+document.querySelectorAll('.ctrl button[data-s]').forEach(b => b.onclick = () => { speed = +b.dataset.s; document.querySelectorAll('.ctrl button[data-s]').forEach(x => x.classList.toggle('on', x === b)); });
+$('integ').onchange = e => { integ = e.target.value; rebuild(); };
+SCENES.forEach((s, k) => { const b = document.createElement('button'); b.id = 'scene-' + s.key; b.textContent = s.title.split(' (')[0]; b.onclick = () => load(k); $('chips').appendChild(b); });
+const retheme = () => rebuild();
+matchMedia('(prefers-color-scheme: dark)').addEventListener('change', retheme);
+new MutationObserver(retheme).observe(document.documentElement, {attributes: true, attributeFilter: ['data-theme']});
+let start = 0; try { start = +(localStorage.getItem('mjlab-scene') || 0) || 0; } catch (e) {}
+if (matchMedia('(prefers-reduced-motion: reduce)').matches) { playing = false; }
+syncPlay(); load(Math.min(start, SCENES.length - 1));
+requestAnimationFrame(t => { last = t; tick(t); });
+window.__lab = {SCENES, load, run: (sec) => { const n = Math.round(sec / m.opt.timestep); for (let i = 0; i < n && !finished; i++) { if (cur.control) cur.control(m, d, P, S); mj.mj_step(m, d); if (cur.after) cur.after(m, d, P, S); if (cur.stop && cur.stop(m, d, P, S)) finished = true; } sync(); record(); return S._last; },
+  pause: () => { playing = false; syncPlay(); }, set: (k, v) => { P[k] = v; rebuild(); }, setInteg: v => { integ = v; rebuild(); }};
+</script>
+
+</body>
+</html>
